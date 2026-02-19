@@ -1,9 +1,9 @@
-import { existsSync, readdirSync, mkdirSync, cpSync, copyFileSync } from 'fs';
+import { existsSync, readdirSync, mkdirSync, cpSync, copyFileSync, writeFileSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { resolve } from 'path';
 import { homedir } from 'os';
-import { confirm } from '@inquirer/prompts';
-import { MERGED_DIR, MCP_CONFIG_PATH, type Paths } from './config.js';
+import { input, confirm } from '@inquirer/prompts';
+import { loadConfig, getHostPaths, MERGED_DIR, MCP_CONFIG_PATH, type Paths } from './config.js';
 import { info, success, warn } from './log.js';
 import { stringify as stringifyYaml } from 'yaml';
 
@@ -30,28 +30,75 @@ function countMdFiles(dir: string): number {
   return count;
 }
 
-export async function importExistingContent(paths: Paths): Promise<void> {
-  const claudeMdPath = expandHome(paths.claude_md);
-  const kbPath = expandHome(paths.kb);
-  const skillsPath = expandHome(paths.skills);
+async function resolvePath(label: string, defaultPath: string): Promise<string> {
+  let resolved = expandHome(defaultPath);
 
-  const hasClaude = existsSync(claudeMdPath);
-  const kbCount = countMdFiles(kbPath);
-  const skillCount = countSkills(skillsPath);
+  while (!existsSync(resolved)) {
+    warn(`  ${label}: not found at ${defaultPath} (${resolved})`);
+    const action = await input({
+      message: `Enter correct path for ${label}, or 'skip' to skip:`,
+      default: defaultPath,
+    });
+
+    if (action === 'skip') return '';
+    defaultPath = action;
+    resolved = expandHome(action);
+  }
+
+  return resolved;
+}
+
+export async function runImport(paths?: Paths): Promise<void> {
+  // If no paths provided, load from config using localhost or first host
+  if (!paths) {
+    const config = loadConfig();
+    const localHost = Object.values(config.hosts).find((h) => h.hostname === 'localhost');
+    if (localHost) {
+      paths = getHostPaths(config, localHost);
+    } else {
+      warn('No localhost host configured. Specify paths manually or add a local host first.');
+      const claudeMd = await input({
+        message: 'Path to CLAUDE.md:',
+        default: '~/discord/CLAUDE.md',
+      });
+      const kb = await input({ message: 'Path to KB directory:', default: '~/discord-kb' });
+      const skills = await input({
+        message: 'Path to skills directory:',
+        default: '~/.claude/skills',
+      });
+      paths = { claude_md: claudeMd, kb, skills };
+    }
+  }
+
+  info('Checking for existing content to import...');
+
+  // Resolve each path, letting user fix or skip missing ones
+  const claudeMdPath = await resolvePath('CLAUDE.md', paths.claude_md);
+  const kbPath = await resolvePath('KB directory', paths.kb);
+  const skillsPath = await resolvePath('Skills directory', paths.skills);
+
+  const hasClaude = claudeMdPath && existsSync(claudeMdPath);
+  const kbCount = kbPath ? countMdFiles(kbPath) : 0;
+  const skillCount = skillsPath ? countSkills(skillsPath) : 0;
+
+  // Report what was found
+  console.log();
+  if (hasClaude) info(`  CLAUDE.md found at ${claudeMdPath}`);
+  else if (claudeMdPath) warn('  CLAUDE.md: skipped');
+
+  if (kbCount > 0) info(`  KB: ${kbCount} files at ${kbPath}`);
+  else if (kbPath) warn('  KB: no .md files found');
+
+  if (skillCount > 0) info(`  Skills: ${skillCount} skills at ${skillsPath}`);
+  else if (skillsPath) warn('  Skills: no skills found');
 
   if (!hasClaude && kbCount === 0 && skillCount === 0) {
-    info('No existing content found to import.');
+    info('Nothing to import.');
     return;
   }
 
-  console.log();
-  info('Found existing content on this machine:');
-  if (hasClaude) info(`  CLAUDE.md at ${paths.claude_md}`);
-  if (kbCount > 0) info(`  KB: ${kbCount} files at ${paths.kb}`);
-  if (skillCount > 0) info(`  Skills: ${skillCount} skills at ${paths.skills}`);
-
   const doImport = await confirm({
-    message: 'Import this content into devsync as the initial state?',
+    message: 'Import found content into devsync?',
     default: true,
   });
 
@@ -78,7 +125,6 @@ export async function importExistingContent(paths: Paths): Promise<void> {
     success(`  Imported skills (${skillCount})`);
   }
 
-  // Try to import MCP servers
   await importMcpServers();
 }
 
@@ -91,7 +137,6 @@ async function importMcpServers(): Promise<void> {
 
     if (!result || result.includes('No MCP servers')) return;
 
-    // Parse claude mcp list output — format varies, but typically shows server names
     const lines = result
       .split('\n')
       .map((l) => l.trim())
@@ -101,8 +146,7 @@ async function importMcpServers(): Promise<void> {
 
     info(`  Found ${lines.length} MCP server(s) configured locally`);
     const doImport = await confirm({
-      message:
-        'Import MCP server names into mcp-servers.yaml? (You may need to fill in details manually)',
+      message: 'Import MCP server names? (You may need to fill in details in mcp-servers.yaml)',
       default: true,
     });
 
@@ -115,13 +159,12 @@ async function importMcpServers(): Promise<void> {
         }
       }
 
-      const { writeFileSync } = await import('fs');
       writeFileSync(MCP_CONFIG_PATH, stringifyYaml({ servers }, { lineWidth: 120 }));
       success(
         `  Imported ${Object.keys(servers).length} MCP server stubs (review mcp-servers.yaml)`,
       );
     }
   } catch {
-    // Claude CLI not available or errored — skip silently
+    // Claude CLI not available — skip silently
   }
 }

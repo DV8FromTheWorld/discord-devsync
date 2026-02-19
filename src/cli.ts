@@ -12,12 +12,14 @@ import { onboard } from './onboard.js';
 import { init } from './init.js';
 import { hostAdd } from './host-add.js';
 import { listHosts, listLayers, listMcp } from './list.js';
+import { runImport } from './import.js';
 
 const USAGE = `\
 Usage: devsync <command> [subcommand] [options]
 
 Setup:
   init                   First-time setup wizard
+  import                 Import existing content (CLAUDE.md, KB, skills, MCP)
   help                   Show this help message
 
 Sync:
@@ -55,7 +57,12 @@ function requireConfig() {
     error("No config found. Run 'devsync init' first.");
     process.exit(1);
   }
-  return loadConfig();
+  try {
+    return loadConfig();
+  } catch (e) {
+    error((e as Error).message);
+    process.exit(1);
+  }
 }
 
 export async function run(args: string[]): Promise<void> {
@@ -69,6 +76,12 @@ export async function run(args: string[]): Promise<void> {
 
   if (command === 'init') {
     await init();
+    return;
+  }
+
+  if (command === 'import') {
+    requireConfig();
+    await runImport();
     return;
   }
 

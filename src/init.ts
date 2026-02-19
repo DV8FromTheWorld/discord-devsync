@@ -14,7 +14,7 @@ import {
 } from './config.js';
 import { info, success } from './log.js';
 import { sshCheck } from './ssh.js';
-import { importExistingContent } from './import.js';
+import { runImport } from './import.js';
 
 async function promptHost(
   layerNames: string[],
@@ -210,12 +210,14 @@ export async function init(): Promise<void> {
     writeFileSync(secretsEnv, '# KEY=VALUE\n');
   }
 
-  // Import existing content from this machine
-  if (localPlatform) {
-    const localPaths = config.defaults[localPlatform]?.paths;
-    if (localPaths) {
-      await importExistingContent(localPaths);
-    }
+  // Offer to import existing content from this machine
+  const doImport = await confirm({
+    message: 'Import existing content from this machine?',
+    default: true,
+  });
+  if (doImport) {
+    const importPaths = localPlatform ? config.defaults[localPlatform]?.paths : undefined;
+    await runImport(importPaths);
   }
 
   console.log();

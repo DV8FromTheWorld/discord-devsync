@@ -2,6 +2,7 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { ConfigSchema, McpConfigSchema, formatValidationErrors } from './schema.js';
 
 export const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const DATA_DIR = resolve(PROJECT_ROOT, 'data');
@@ -69,7 +70,16 @@ export function loadConfig(): Config {
     throw new Error(`Config not found. Run 'devsync init' first.`);
   }
   const raw = readFileSync(CONFIG_PATH, 'utf-8');
-  return parseYaml(raw) as Config;
+  const parsed = parseYaml(raw);
+
+  const result = ConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(
+      `Invalid config.yaml:\n${formatValidationErrors(result.error)}\n\nFix the issues above or run 'devsync init' to regenerate.`,
+    );
+  }
+
+  return result.data as Config;
 }
 
 export function saveConfig(config: Config): void {
@@ -82,7 +92,16 @@ export function loadMcpConfig(): McpConfig {
     return { servers: {} };
   }
   const raw = readFileSync(MCP_CONFIG_PATH, 'utf-8');
-  return parseYaml(raw) as McpConfig;
+  const parsed = parseYaml(raw);
+
+  const result = McpConfigSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(
+      `Invalid mcp-servers.yaml:\n${formatValidationErrors(result.error)}\n\nFix the issues above in data/mcp-servers.yaml.`,
+    );
+  }
+
+  return result.data as McpConfig;
 }
 
 export function getHostPaths(config: Config, host: HostConfig): Paths {
