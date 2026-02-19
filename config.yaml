@@ -1,0 +1,35 @@
+defaults:
+  paths:
+    claude_md: ~/discord/CLAUDE.md
+    kb: ~/discord-kb
+    skills: ~/.claude/skills
+    home: ~
+
+layers:
+  core:
+    description: Base Claude config, dotfiles, and secrets
+    skills: all
+    mcp: [buildkite]
+    dotfiles: true
+    secrets: true
+
+hosts:
+  age-ii:
+    hostname: age-ii.coder
+    platform: linux
+    layers: [core]
+
+  age-v:
+    hostname: age-v.coder
+    platform: linux
+    layers: [core]
+
+  gahreesen:
+    hostname: gahreesen.coder
+    platform: linux
+    layers: [core]
+
+  tay:
+    hostname: tay.coder
+    platform: linux
+    layers: [core]
