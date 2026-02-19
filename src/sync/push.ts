@@ -106,15 +106,23 @@ export function push(hosts: ResolvedHost[]): void {
   for (const host of hosts) {
     const spinner = ora({ text: host.name, prefixText: '  ' }).start();
     const { pushed, errors } = pushHost(host);
+    spinner.stop();
 
     if (errors.length === 0) {
-      spinner.succeed(`${host.name} — ${pushed.join(', ')}`);
+      ora({ prefixText: '  ' }).succeed(`${host.name} — ${pushed.join(', ')}`);
       succeeded++;
     } else if (pushed.length > 0) {
-      spinner.warn(`${host.name} — ${pushed.join(', ')} (${errors.join('; ')})`);
+      ora({ prefixText: '  ' }).warn(host.name);
+      console.log(`        ${pushed.join(', ')}`);
+      for (const err of errors) {
+        console.log(`      \x1b[31m✖\x1b[0m ${err}`);
+      }
       succeeded++;
     } else {
-      spinner.fail(`${host.name} — ${errors.join('; ')}`);
+      ora({ prefixText: '  ' }).fail(host.name);
+      for (const err of errors) {
+        console.log(`      \x1b[31m✖\x1b[0m ${err}`);
+      }
       failed++;
     }
   }
