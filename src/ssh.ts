@@ -1,5 +1,10 @@
 import { execFileSync, ExecFileSyncOptions } from 'child_process';
+import { homedir } from 'os';
 import type { ResolvedHost } from './config.js';
+
+function expandHome(path: string): string {
+  return path.replace(/^~(?=$|\/)/, homedir());
+}
 
 export interface RunResult {
   ok: boolean;
@@ -42,6 +47,6 @@ export function sshCheck(host: ResolvedHost): boolean {
 }
 
 export function remotePath(host: ResolvedHost, path: string): string {
-  if (host.isLocal) return path;
+  if (host.isLocal) return expandHome(path);
   return `${host.hostname}:${path}`;
 }
