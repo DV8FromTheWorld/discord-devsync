@@ -94,13 +94,44 @@ export async function init(): Promise<void> {
     }
   }
 
-  // Build the config
+  // Default paths
+  info('Configure default paths for each platform.');
+  info('(These apply to all hosts of that platform unless overridden per-host.)');
+  console.log();
+
+  const darwinClaudeMd = await input({
+    message: 'macOS — Path to CLAUDE.md:',
+    default: '~/repos/discord/CLAUDE.md',
+  });
+  const darwinKb = await input({
+    message: 'macOS — Path to KB directory:',
+    default: '~/repos/discord-kb',
+  });
+
+  const linuxClaudeMd = await input({
+    message: 'Linux — Path to CLAUDE.md:',
+    default: '~/workspaces/discord/CLAUDE.md',
+  });
+  const linuxKb = await input({
+    message: 'Linux — Path to KB directory:',
+    default: '~/workspaces/discord-kb',
+  });
+
   const config: Config = {
     defaults: {
-      paths: {
-        claude_md: '~/discord/CLAUDE.md',
-        kb: '~/discord-kb',
-        skills: '~/.claude/skills',
+      darwin: {
+        paths: {
+          claude_md: darwinClaudeMd,
+          kb: darwinKb,
+          skills: '~/.claude/skills',
+        },
+      },
+      linux: {
+        paths: {
+          claude_md: linuxClaudeMd,
+          kb: linuxKb,
+          skills: '~/.claude/skills',
+        },
       },
     },
     layers: {

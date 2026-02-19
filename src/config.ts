@@ -46,8 +46,12 @@ export interface McpServer {
   env?: Record<string, string>;
 }
 
+export interface PlatformDefaults {
+  paths: Paths;
+}
+
 export interface Config {
-  defaults: { paths: Paths };
+  defaults: Record<Platform, PlatformDefaults>;
   layers: Record<string, Layer>;
   hosts: Record<string, HostConfig>;
 }
@@ -82,7 +86,8 @@ export function loadMcpConfig(): McpConfig {
 }
 
 export function getHostPaths(config: Config, host: HostConfig): Paths {
-  return { ...config.defaults.paths, ...host.paths };
+  const platformDefaults = config.defaults[host.platform]?.paths ?? config.defaults.linux?.paths;
+  return { ...platformDefaults, ...host.paths };
 }
 
 export interface ResolvedHost {

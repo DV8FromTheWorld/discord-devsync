@@ -1,8 +1,14 @@
 defaults:
-  paths:
-    claude_md: ~/discord/CLAUDE.md
-    kb: ~/discord-kb
-    skills: ~/.claude/skills
+  darwin:
+    paths:
+      claude_md: ~/repos/discord/CLAUDE.md
+      kb: ~/repos/discord-kb
+      skills: ~/.claude/skills
+  linux:
+    paths:
+      claude_md: ~/workspaces/discord/CLAUDE.md
+      kb: ~/workspaces/discord-kb
+      skills: ~/.claude/skills
 
 layers:
   core:

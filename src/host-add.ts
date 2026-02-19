@@ -57,8 +57,9 @@ export async function hostAdd(): Promise<void> {
   });
 
   // Custom paths
+  const platformDefaults = config.defaults[platform]?.paths;
   const customPaths = await confirm({
-    message: `Use default paths? (claude_md: ${config.defaults.paths.claude_md}, kb: ${config.defaults.paths.kb})`,
+    message: `Use default ${platform} paths? (claude_md: ${platformDefaults?.claude_md}, kb: ${platformDefaults?.kb})`,
     default: true,
   });
 
@@ -72,21 +73,21 @@ export async function hostAdd(): Promise<void> {
     hostConfig.paths = {};
     const claudeMd = await input({
       message: 'Path to CLAUDE.md:',
-      default: config.defaults.paths.claude_md,
+      default: platformDefaults?.claude_md ?? '~/discord/CLAUDE.md',
     });
-    if (claudeMd !== config.defaults.paths.claude_md) hostConfig.paths.claude_md = claudeMd;
+    if (claudeMd !== platformDefaults?.claude_md) hostConfig.paths.claude_md = claudeMd;
 
     const kb = await input({
       message: 'Path to KB directory:',
-      default: config.defaults.paths.kb,
+      default: platformDefaults?.kb ?? '~/discord-kb',
     });
-    if (kb !== config.defaults.paths.kb) hostConfig.paths.kb = kb;
+    if (kb !== platformDefaults?.kb) hostConfig.paths.kb = kb;
 
     const skills = await input({
       message: 'Path to skills directory:',
-      default: config.defaults.paths.skills,
+      default: platformDefaults?.skills ?? '~/.claude/skills',
     });
-    if (skills !== config.defaults.paths.skills) hostConfig.paths.skills = skills;
+    if (skills !== platformDefaults?.skills) hostConfig.paths.skills = skills;
 
     if (Object.keys(hostConfig.paths).length === 0) delete hostConfig.paths;
   }
