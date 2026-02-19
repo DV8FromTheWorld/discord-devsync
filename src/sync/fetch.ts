@@ -65,39 +65,19 @@ export async function fetch(hosts: ResolvedHost[]): Promise<void> {
 
   console.log();
 
-  // Start all fetches in parallel with individual spinners
-  const spinners = hosts.map((host) => ({
-    host,
-    spinner: ora({ text: host.name, prefixText: '  ' }).start(),
-    promise: fetchHost(host),
-  }));
+  const hostNames = hosts.map((h) => h.name).join(', ');
+  const spinner = ora({ text: `Fetching from ${hostNames}`, prefixText: '  ' }).start();
 
-  // Collect results, then print sequentially for clean output
-  const completed: { spinner: ReturnType<typeof ora>; result: FetchResult }[] = [];
-  await Promise.all(
-    spinners.map(async ({ spinner, promise }) => {
-      const result = await promise;
-      spinner.stop();
-      completed.push({ spinner, result });
-    }),
-  );
+  const results = await Promise.all(hosts.map(fetchHost));
+  spinner.stop();
 
-  // Print in original host order
-  for (const { result } of completed.sort(
-    (a, b) =>
-      hosts.findIndex((h) => h.name === a.result.host) -
-      hosts.findIndex((h) => h.name === b.result.host),
-  )) {
+  for (const result of results) {
     printResult(result);
   }
 
-  const succeeded = completed.filter((c) => c.result.errors.length === 0).length;
-  const partial = completed.filter(
-    (c) => c.result.errors.length > 0 && c.result.succeeded.length > 0,
-  ).length;
-  const failed = completed.filter(
-    (c) => c.result.succeeded.length === 0 && c.result.errors.length > 0,
-  ).length;
+  const succeeded = results.filter((r) => r.errors.length === 0).length;
+  const partial = results.filter((r) => r.errors.length > 0 && r.succeeded.length > 0).length;
+  const failed = results.filter((r) => r.succeeded.length === 0 && r.errors.length > 0).length;
 
   console.log();
   const summary = [
