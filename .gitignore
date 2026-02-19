@@ -1,8 +1,7 @@
 node_modules/
 dist/
-remotes/
-secrets/
-dream_log/
+data/remotes/
+data/secrets/
 *.log
 .DS_Store
 package-lock.json

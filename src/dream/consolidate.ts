@@ -13,9 +13,9 @@ export function consolidate(): void {
 You are performing a "dream" consolidation of a shared knowledge base and skills library.
 
 Read the following directories and analyze their contents:
-- merged/discord-kb/ (knowledge base files — skip journal/ and curiosity/ subdirectories)
-- merged/.claude/skills/ (Claude skills)
-- merged/discord-kb/journal/ (recent agent journal entries)
+- data/merged/discord-kb/ (knowledge base files — skip journal/ and curiosity/ subdirectories)
+- data/merged/.claude/skills/ (Claude skills)
+- data/merged/discord-kb/journal/ (recent agent journal entries)
 
 Based on your analysis, perform the following maintenance operations:
 
@@ -28,10 +28,10 @@ Based on your analysis, perform the following maintenance operations:
 
 Rules:
 - Use Read, Glob, and Grep to explore the current state
-- Use Write and Edit to make changes to files in merged/
+- Use Write and Edit to make changes to files in data/merged/
 - Use Bash for mv/rm operations when reorganizing
 - Be conservative — only make changes you're confident improve the corpus
-- Write a brief audit log entry to dream_log/${today}.md describing what you changed and why
+- Write a brief audit log entry to data/dream_log/${today}.md describing what you changed and why
 
 When done, print a summary of actions taken.`;
 

@@ -14,8 +14,8 @@ export function pushSecrets(host: ResolvedHost): void {
     return;
   }
 
-  info(`  Pushing secrets to ${host.name}:${host.paths.home}/${REMOTE_ENV_PATH}`, 'secrets');
-  const r = rsync(envFile, remotePath(host, `${host.paths.home}/${REMOTE_ENV_PATH}`));
+  info(`  Pushing secrets to ${host.name}:~/${REMOTE_ENV_PATH}`, 'secrets');
+  const r = rsync(envFile, remotePath(host, `~/${REMOTE_ENV_PATH}`));
   if (r.ok) {
     success(`  Secrets pushed to ${host.name}`, 'secrets');
   } else {

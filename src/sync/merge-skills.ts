@@ -66,7 +66,7 @@ function mergeSkillWithClaude(skillName: string, newerRemotes: string[]): boolea
       `- Preserve all unique files from each version`,
       `- Add comments noting source host for conflicting sections`,
       `- Maintain proper skill structure and format`,
-      `- Write merged result to merged/.claude/skills/${skillName}/`,
+      `- Write merged result to data/merged/.claude/skills/${skillName}/`,
       '',
       'Print brief summary when done.',
     ].join('\n');

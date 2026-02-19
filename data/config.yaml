@@ -1,0 +1,14 @@
+defaults:
+  paths:
+    claude_md: ~/discord/CLAUDE.md
+    kb: ~/discord-kb
+    skills: ~/.claude/skills
+
+layers:
+  core:
+    description: Base config synced to all hosts
+    skills: all
+    dotfiles: true
+    secrets: true
+
+hosts: {}

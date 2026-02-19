@@ -55,8 +55,8 @@ export function pushDotfiles(host: ResolvedHost): void {
     const zshrcPath = resolve(tempDir, '.zshrc');
     writeFileSync(zshrcPath, zshrc);
 
-    info(`    .zshrc → ${host.name}:${host.paths.home}/.zshrc`, 'dotfiles');
-    const r = rsync(zshrcPath, remotePath(host, `${host.paths.home}/.zshrc`));
+    info(`    .zshrc → ${host.name}:~/.zshrc`, 'dotfiles');
+    const r = rsync(zshrcPath, remotePath(host, '~/.zshrc'));
     if (r.ok) success(`    .zshrc pushed`, 'dotfiles');
     else warn(`    Failed to push .zshrc`, 'dotfiles');
 
@@ -86,8 +86,8 @@ export function pushDotfiles(host: ResolvedHost): void {
 
       const tmpFile = resolve(tempDir, dotfile);
       writeFileSync(tmpFile, content);
-      info(`    ${dotfile} → ${host.name}:${host.paths.home}/${dotfile}`, 'dotfiles');
-      rsync(tmpFile, remotePath(host, `${host.paths.home}/${dotfile}`));
+      info(`    ${dotfile} → ${host.name}:~/${dotfile}`, 'dotfiles');
+      rsync(tmpFile, remotePath(host, `~/${dotfile}`));
     }
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

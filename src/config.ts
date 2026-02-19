@@ -1,17 +1,18 @@
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 export const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-export const REMOTES_DIR = resolve(PROJECT_ROOT, 'remotes');
-export const MERGED_DIR = resolve(PROJECT_ROOT, 'merged');
-export const DREAM_LOG_DIR = resolve(PROJECT_ROOT, 'dream_log');
-export const DOTFILES_DIR = resolve(PROJECT_ROOT, 'dotfiles');
-export const SECRETS_DIR = resolve(PROJECT_ROOT, 'secrets');
+export const DATA_DIR = resolve(PROJECT_ROOT, 'data');
+export const REMOTES_DIR = resolve(DATA_DIR, 'remotes');
+export const MERGED_DIR = resolve(DATA_DIR, 'merged');
+export const DREAM_LOG_DIR = resolve(DATA_DIR, 'dream_log');
+export const DOTFILES_DIR = resolve(DATA_DIR, 'dotfiles');
+export const SECRETS_DIR = resolve(DATA_DIR, 'secrets');
 
-const CONFIG_PATH = resolve(PROJECT_ROOT, 'config.yaml');
-const MCP_CONFIG_PATH = resolve(PROJECT_ROOT, 'mcp-servers.yaml');
+export const CONFIG_PATH = resolve(DATA_DIR, 'config.yaml');
+export const MCP_CONFIG_PATH = resolve(DATA_DIR, 'mcp-servers.yaml');
 
 export type Platform = 'darwin' | 'linux';
 
@@ -19,7 +20,6 @@ export interface Paths {
   claude_md: string;
   kb: string;
   skills: string;
-  home: string;
 }
 
 export interface Layer {
@@ -56,12 +56,21 @@ export interface McpConfig {
   servers: Record<string, McpServer>;
 }
 
+export function configExists(): boolean {
+  return existsSync(CONFIG_PATH);
+}
+
 export function loadConfig(): Config {
   if (!existsSync(CONFIG_PATH)) {
-    throw new Error(`Config file not found: ${CONFIG_PATH}`);
+    throw new Error(`Config not found. Run 'devsync init' first.`);
   }
   const raw = readFileSync(CONFIG_PATH, 'utf-8');
   return parseYaml(raw) as Config;
+}
+
+export function saveConfig(config: Config): void {
+  mkdirSync(DATA_DIR, { recursive: true });
+  writeFileSync(CONFIG_PATH, stringifyYaml(config, { lineWidth: 120 }));
 }
 
 export function loadMcpConfig(): McpConfig {

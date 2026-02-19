@@ -18,7 +18,7 @@ export function onboard(host: ResolvedHost): void {
 
   // 2. Create directory structure
   info('  Creating directory structure...', 'onboard');
-  const dirs = [host.paths.kb, host.paths.skills, `${host.paths.home}/.claude`];
+  const dirs = [host.paths.kb, host.paths.skills, '~/.claude'];
   const mkdirCmd = dirs.map((d) => `mkdir -p ${d}`).join(' && ');
   const mkdirResult = sshRun(host, mkdirCmd);
   if (!mkdirResult.ok) {

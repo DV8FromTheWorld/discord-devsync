@@ -34,12 +34,12 @@ export function mergeClaudeMd(): void {
   }
 
   const prompt = [
-    'Read all CLAUDE.md files in remotes/ and merge them intelligently:',
+    'Read all CLAUDE.md files in data/remotes/ and merge them intelligently:',
     '',
     '- Remove duplicates, keep most comprehensive versions',
     '- Preserve unique insights from each host',
     '- Maintain proper markdown structure',
-    '- Write result to merged/CLAUDE.md',
+    '- Write result to data/merged/CLAUDE.md',
     '',
     'Print brief summary when done.',
   ].join('\n');

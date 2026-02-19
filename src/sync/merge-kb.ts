@@ -71,7 +71,7 @@ function mergeKbFileWithClaude(kbFile: string, newerRemotes: string[]): boolean 
       `- Remove duplicates, keep most comprehensive versions`,
       `- Add source attribution for new/conflicting sections`,
       `- Maintain proper markdown structure`,
-      `- Write result to merged/discord-kb/${kbFile}`,
+      `- Write result to data/merged/discord-kb/${kbFile}`,
       '',
       'Print brief summary when done.',
     ].join('\n');
