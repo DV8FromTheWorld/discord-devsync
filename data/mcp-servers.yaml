@@ -1,6 +1,0 @@
-servers:
-  buildkite:
-    transport: http
-    url: https://mcp.buildkite.com/v1
-    headers:
-      Authorization: "Bearer ${BUILDKITE_MCP_TOKEN}"
