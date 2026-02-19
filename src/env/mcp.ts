@@ -1,5 +1,4 @@
 import { loadMcpConfig, type McpServer, type ResolvedHost } from '../config.js';
-import { info, success, warn } from '../log.js';
 import { sshRun } from '../ssh.js';
 import { loadSecrets } from './secrets.js';
 
@@ -37,37 +36,15 @@ function buildMcpAddCommand(
 }
 
 export function reconcileMcp(host: ResolvedHost): void {
-  info(`  Reconciling MCP servers for ${host.name}`, 'mcp');
-
   const mcpConfig = loadMcpConfig();
   const secrets = loadSecrets();
 
-  // Desired servers for this host
-  const desired = new Set<string>();
   for (const serverName of host.mcp) {
-    if (mcpConfig.servers[serverName]) {
-      desired.add(serverName);
-    } else {
-      warn(
-        `  MCP server '${serverName}' referenced in layers but not defined in mcp-servers.yaml`,
-        'mcp',
-      );
-    }
-  }
+    const server = mcpConfig.servers[serverName];
+    if (!server) continue;
 
-  // Add missing servers
-  for (const name of desired) {
-    const server = mcpConfig.servers[name];
-    const addCmd = buildMcpAddCommand(name, server, secrets);
-    info(`    Adding MCP server '${name}'`, 'mcp');
-
-    // Remove first to ensure clean state, then add
-    sshRun(host, `claude mcp remove ${name} 2>/dev/null || true`);
-    const result = sshRun(host, addCmd.join(' '));
-    if (result.ok) {
-      success(`    MCP server '${name}' configured`, 'mcp');
-    } else {
-      warn(`    Failed to configure MCP server '${name}': ${result.stderr}`, 'mcp');
-    }
+    const addCmd = buildMcpAddCommand(serverName, server, secrets);
+    sshRun(host, `claude mcp remove ${serverName} 2>/dev/null || true`);
+    sshRun(host, addCmd.join(' '));
   }
 }

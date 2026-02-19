@@ -1,42 +1,43 @@
+import ora from 'ora';
 import type { ResolvedHost } from './config.js';
-import { info, success, error } from './log.js';
+import { error } from './log.js';
 import { sshCheck, sshRun } from './ssh.js';
 import { push } from './sync/push.js';
 
 export function onboard(host: ResolvedHost): void {
-  info(`Onboarding ${host.name} (${host.hostname})...`, 'onboard');
+  console.log();
 
   // 1. Verify SSH connectivity
   if (!host.isLocal) {
-    info('  Checking SSH connectivity...', 'onboard');
+    const sshSpinner = ora({ text: `Checking SSH to ${host.hostname}`, prefixText: '  ' }).start();
     if (!sshCheck(host)) {
-      error(`  Cannot reach ${host.hostname} via SSH`, 'onboard');
+      sshSpinner.fail(`Cannot reach ${host.hostname} via SSH`);
       process.exit(1);
     }
-    success('  SSH connection OK', 'onboard');
+    sshSpinner.succeed(`SSH to ${host.hostname}`);
   }
 
   // 2. Create directory structure
-  info('  Creating directory structure...', 'onboard');
+  const dirSpinner = ora({ text: 'Creating directories', prefixText: '  ' }).start();
   const dirs = [host.paths.kb, host.paths.skills, '~/.claude'];
   const mkdirCmd = dirs.map((d) => `mkdir -p ${d}`).join(' && ');
   const mkdirResult = sshRun(host, mkdirCmd);
   if (!mkdirResult.ok) {
-    error('  Failed to create directories', 'onboard');
+    dirSpinner.fail('Failed to create directories');
     process.exit(1);
   }
-  success('  Directories created', 'onboard');
+  dirSpinner.succeed('Directories created');
 
   // 3. Push everything
-  info('  Pushing all content...', 'onboard');
   push([host]);
 
-  success(`Onboarding of ${host.name} completed!`, 'onboard');
   console.log();
-  console.log(`  Host: ${host.hostname}`);
-  console.log(`  Platform: ${host.platform}`);
-  console.log(`  Skills: ${host.skills === 'all' ? 'all' : [...host.skills].join(', ')}`);
-  console.log(`  MCP servers: ${[...host.mcp].join(', ') || 'none'}`);
-  console.log(`  Dotfiles: ${host.dotfiles ? 'yes' : 'no'}`);
-  console.log(`  Secrets: ${host.secrets ? 'yes' : 'no'}`);
+  ora().succeed(`Onboarded ${host.name}`);
+  console.log();
+  console.log(`  hostname:  ${host.hostname}`);
+  console.log(`  platform:  ${host.platform}`);
+  console.log(`  skills:    ${host.skills === 'all' ? 'all' : [...host.skills].join(', ')}`);
+  console.log(`  mcp:       ${[...host.mcp].join(', ') || 'none'}`);
+  console.log(`  dotfiles:  ${host.dotfiles ? 'yes' : 'no'}`);
+  console.log(`  secrets:   ${host.secrets ? 'yes' : 'no'}`);
 }

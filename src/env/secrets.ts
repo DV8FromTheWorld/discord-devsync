@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { SECRETS_DIR, type ResolvedHost } from '../config.js';
-import { info, success, warn } from '../log.js';
 import { rsync, remotePath } from '../ssh.js';
 
 const ENV_FILE = 'env';
@@ -9,18 +8,8 @@ const REMOTE_ENV_PATH = '.devsync-env';
 
 export function pushSecrets(host: ResolvedHost): void {
   const envFile = resolve(SECRETS_DIR, ENV_FILE);
-  if (!existsSync(envFile)) {
-    warn(`  No secrets/env file found — skipping secrets push to ${host.name}`, 'secrets');
-    return;
-  }
-
-  info(`  Pushing secrets to ${host.name}:~/${REMOTE_ENV_PATH}`, 'secrets');
-  const r = rsync(envFile, remotePath(host, `~/${REMOTE_ENV_PATH}`));
-  if (r.ok) {
-    success(`  Secrets pushed to ${host.name}`, 'secrets');
-  } else {
-    warn(`  Failed to push secrets to ${host.name}`, 'secrets');
-  }
+  if (!existsSync(envFile)) return;
+  rsync(envFile, remotePath(host, `~/${REMOTE_ENV_PATH}`));
 }
 
 export function loadSecrets(): Record<string, string> {

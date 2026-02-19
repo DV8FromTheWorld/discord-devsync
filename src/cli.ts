@@ -98,7 +98,7 @@ export async function run(args: string[]): Promise<void> {
     const hosts = getHosts();
     switch (subcommand) {
       case 'fetch':
-        fetch(hosts);
+        await fetch(hosts);
         break;
       case 'merge':
         merge();
@@ -113,7 +113,7 @@ export async function run(args: string[]): Promise<void> {
         status();
         break;
       case 'full':
-        fetch(hosts);
+        await fetch(hosts);
         merge();
         push(hosts);
         commit();
@@ -143,7 +143,7 @@ export async function run(args: string[]): Promise<void> {
         cleanup();
         break;
       case 'full':
-        fetch(hosts);
+        await fetch(hosts);
         merge();
         consolidate();
         curiosity();
