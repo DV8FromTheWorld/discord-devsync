@@ -14,6 +14,7 @@ import {
 } from './config.js';
 import { info, success } from './log.js';
 import { sshCheck } from './ssh.js';
+import { importExistingContent } from './import.js';
 
 async function promptHost(
   layerNames: string[],
@@ -159,9 +160,11 @@ export async function init(): Promise<void> {
     ],
   });
 
+  let localPlatform: Platform | null = null;
   if (isHub === 'hub-and-host') {
     const local = await promptHost(layerNames, true);
     if (local) {
+      localPlatform = local.platform;
       config.hosts[local.name] = {
         hostname: local.hostname,
         platform: local.platform,
@@ -205,6 +208,14 @@ export async function init(): Promise<void> {
   const secretsEnv = `${SECRETS_DIR}/env`;
   if (!existsSync(secretsEnv)) {
     writeFileSync(secretsEnv, '# KEY=VALUE\n');
+  }
+
+  // Import existing content from this machine
+  if (localPlatform) {
+    const localPaths = config.defaults[localPlatform]?.paths;
+    if (localPaths) {
+      await importExistingContent(localPaths);
+    }
   }
 
   console.log();

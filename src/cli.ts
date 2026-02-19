@@ -11,6 +11,7 @@ import { cleanup } from './dream/cleanup.js';
 import { onboard } from './onboard.js';
 import { init } from './init.js';
 import { hostAdd } from './host-add.js';
+import { listHosts, listLayers, listMcp } from './list.js';
 
 const USAGE = `\
 Usage: devsync <command> [subcommand] [options]
@@ -35,7 +36,12 @@ Dream:
 
 Hosts:
   host add               Add a new host interactively
+  host list              Show all configured hosts
   host onboard <name>    Full setup of a configured host
+
+List:
+  layer list             Show all layers and their contents
+  mcp list               Show configured MCP servers
 `;
 
 function getHostFilter(args: string[]): string | undefined {
@@ -140,6 +146,9 @@ export async function run(args: string[]): Promise<void> {
   } else if (command === 'host') {
     if (subcommand === 'add') {
       await hostAdd();
+    } else if (subcommand === 'list') {
+      requireConfig();
+      listHosts();
     } else if (subcommand === 'onboard') {
       const config = requireConfig();
       const hostName = args[2];
@@ -151,6 +160,23 @@ export async function run(args: string[]): Promise<void> {
       onboard(host);
     } else {
       error(`Unknown host subcommand: ${subcommand}`);
+      console.log(USAGE);
+      process.exit(1);
+    }
+  } else if (command === 'layer') {
+    if (subcommand === 'list') {
+      requireConfig();
+      listLayers();
+    } else {
+      error(`Unknown layer subcommand: ${subcommand}`);
+      console.log(USAGE);
+      process.exit(1);
+    }
+  } else if (command === 'mcp') {
+    if (subcommand === 'list') {
+      listMcp();
+    } else {
+      error(`Unknown mcp subcommand: ${subcommand}`);
       console.log(USAGE);
       process.exit(1);
     }
