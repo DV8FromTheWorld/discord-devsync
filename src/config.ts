@@ -14,6 +14,7 @@ export const SECRETS_DIR = resolve(DATA_DIR, 'secrets');
 
 export const CONFIG_PATH = resolve(DATA_DIR, 'config.yaml');
 export const MCP_SERVERS_PATH = resolve(MERGED_DIR, 'mcp-servers.json');
+export const MCP_EXCLUDE_PATH = resolve(MERGED_DIR, 'mcp-exclude.json');
 export const PERMISSIONS_PATH = resolve(MERGED_DIR, 'permissions.json');
 
 export type Platform = 'darwin' | 'linux';
@@ -126,6 +127,24 @@ export function savePermissions(permissions: string[]): void {
   mkdirSync(MERGED_DIR, { recursive: true });
   const sorted = [...new Set(permissions)].sort();
   writeFileSync(PERMISSIONS_PATH, JSON.stringify(sorted, null, 2) + '\n');
+}
+
+export function loadMcpExclude(): string[] {
+  if (!existsSync(MCP_EXCLUDE_PATH)) return [];
+  try {
+    const raw = readFileSync(MCP_EXCLUDE_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((p: unknown) => typeof p === 'string');
+  } catch {
+    return [];
+  }
+}
+
+export function saveMcpExclude(names: string[]): void {
+  mkdirSync(MERGED_DIR, { recursive: true });
+  const sorted = [...new Set(names)].sort();
+  writeFileSync(MCP_EXCLUDE_PATH, JSON.stringify(sorted, null, 2) + '\n');
 }
 
 export function getHostPaths(config: Config, host: HostConfig): Paths {

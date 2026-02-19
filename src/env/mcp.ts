@@ -50,6 +50,23 @@ export async function reconcileMcp(host: ResolvedHost): Promise<void> {
   try {
     const claudeJson = await readRemoteJson(host, '~/.claude.json');
     claudeJson.mcpServers = filteredServers;
+
+    // Clean up project-scoped duplicates — remove servers we're pushing to user scope
+    // from any project-specific mcpServers to prevent config drift
+    const pushedNames = Object.keys(filteredServers);
+    const projects = claudeJson.projects as Record<string, Record<string, unknown>> | undefined;
+    if (projects && typeof projects === 'object') {
+      for (const projectData of Object.values(projects)) {
+        const projectMcp = projectData.mcpServers as Record<string, unknown> | undefined;
+        if (!projectMcp || typeof projectMcp !== 'object') continue;
+        for (const name of pushedNames) {
+          if (name in projectMcp) {
+            delete projectMcp[name];
+          }
+        }
+      }
+    }
+
     await writeRemoteJson(host, '~/.claude.json', claudeJson);
   } catch (e) {
     warn(`  MCP reconciliation failed for ${host.name}: ${(e as Error).message}`, 'mcp');

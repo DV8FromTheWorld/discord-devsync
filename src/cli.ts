@@ -15,6 +15,7 @@ import { listHosts, listLayers, listMcp } from './list.js';
 import { runImport } from './import.js';
 import { mcpAdd } from './mcp-add.js';
 import { mcpRemove } from './mcp-remove.js';
+import { mcpReview } from './mcp-review.js';
 import { permissionsList, permissionsAdd, permissionsRemove } from './permissions.js';
 
 const USAGE = `\
@@ -51,6 +52,7 @@ MCP:
   mcp list               Show configured MCP servers
   mcp add [name]         Add an MCP server interactively
   mcp remove <name>      Remove an MCP server
+  mcp review             Review newly discovered MCP servers
 
 Permissions:
   permissions list       Show synced permission rules
@@ -210,6 +212,8 @@ export async function run(args: string[]): Promise<void> {
         process.exit(1);
       }
       mcpRemove(name);
+    } else if (subcommand === 'review') {
+      await mcpReview();
     } else {
       error(`Unknown mcp subcommand: ${subcommand}`);
       console.log(USAGE);
