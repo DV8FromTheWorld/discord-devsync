@@ -2,45 +2,65 @@ import { mkdirSync } from 'fs';
 import { resolve } from 'path';
 import ora from 'ora';
 import { REMOTES_DIR, type ResolvedHost } from '../config.js';
-import { rsyncAsync, rsyncDeleteAsync, remotePath } from '../ssh.js';
+import { rsync, rsyncMirror, remotePath, checkConnection } from '../ssh.js';
 
 interface FetchResult {
   host: string;
   succeeded: string[];
   errors: string[];
+  unreachable: boolean;
 }
 
 async function fetchHost(host: ResolvedHost): Promise<FetchResult> {
-  const result: FetchResult = { host: host.name, succeeded: [], errors: [] };
+  const result: FetchResult = { host: host.name, succeeded: [], errors: [], unreachable: false };
+
+  // Check connectivity first (skip for localhost)
+  if (!host.isLocal) {
+    const reachable = await checkConnection(host);
+    if (!reachable) {
+      result.unreachable = true;
+      result.errors.push('host unreachable');
+      return result;
+    }
+  }
+
   const remoteDir = resolve(REMOTES_DIR, host.name);
   mkdirSync(remoteDir, { recursive: true });
 
-  const claudeResult = await rsyncAsync(
+  // CLAUDE.md (single file copy)
+  const claudeResult = await rsync(
     remotePath(host, host.paths.claude_md),
     resolve(remoteDir, 'CLAUDE.md'),
   );
   if (claudeResult.ok) result.succeeded.push('CLAUDE.md');
-  else result.errors.push('CLAUDE.md: not found or host unreachable');
+  else result.errors.push('CLAUDE.md not found');
 
+  // KB directory (mirror with --delete so local copy matches remote exactly)
   const kbDir = resolve(remoteDir, 'discord-kb');
   mkdirSync(kbDir, { recursive: true });
-  const kbResult = await rsyncDeleteAsync(remotePath(host, host.paths.kb + '/'), kbDir + '/');
+  const kbResult = await rsyncMirror(remotePath(host, host.paths.kb + '/'), kbDir + '/');
   if (kbResult.ok) result.succeeded.push('KB');
-  else result.errors.push('KB: directory not found');
+  else result.errors.push('KB directory not found');
 
+  // Skills directory (mirror with --delete)
   const skillsDir = resolve(remoteDir, '.claude', 'skills');
   mkdirSync(skillsDir, { recursive: true });
-  const skillsResult = await rsyncDeleteAsync(
+  const skillsResult = await rsyncMirror(
     remotePath(host, host.paths.skills + '/'),
     skillsDir + '/',
   );
   if (skillsResult.ok) result.succeeded.push('skills');
-  else result.errors.push('Skills: directory not found');
+  else result.errors.push('skills directory not found');
 
   return result;
 }
 
 function printResult(r: FetchResult): void {
+  if (r.unreachable) {
+    ora({ prefixText: '  ' }).fail(`${r.host} — unreachable`);
+    return;
+  }
+
   if (r.errors.length === 0) {
     ora({ prefixText: '  ' }).succeed(`${r.host} — ${r.succeeded.join(', ')}`);
   } else if (r.succeeded.length > 0) {
@@ -65,19 +85,46 @@ export async function fetch(hosts: ResolvedHost[]): Promise<void> {
 
   console.log();
 
-  const hostNames = hosts.map((h) => h.name).join(', ');
-  const spinner = ora({ text: `Fetching from ${hostNames}`, prefixText: '  ' }).start();
+  const total = hosts.length;
+  let completed = 0;
+  let errorCount = 0;
 
-  const results = await Promise.all(hosts.map(fetchHost));
+  const spinner = ora({ prefixText: '  ' });
+
+  function updateSpinner(): void {
+    const errStr = errorCount > 0 ? `, ${errorCount} with errors` : '';
+    spinner.text = `${completed}/${total} complete${errStr}`;
+  }
+
+  updateSpinner();
+  spinner.start();
+
+  const results: FetchResult[] = [];
+  await Promise.all(
+    hosts.map(async (host) => {
+      const result = await fetchHost(host);
+      completed++;
+      if (result.errors.length > 0) errorCount++;
+      results.push(result);
+      updateSpinner();
+    }),
+  );
+
   spinner.stop();
 
-  for (const result of results) {
+  // Print in original host order
+  const ordered = hosts.map((h) => results.find((r) => r.host === h.name)!);
+  for (const result of ordered) {
     printResult(result);
   }
 
-  const succeeded = results.filter((r) => r.errors.length === 0).length;
-  const partial = results.filter((r) => r.errors.length > 0 && r.succeeded.length > 0).length;
-  const failed = results.filter((r) => r.succeeded.length === 0 && r.errors.length > 0).length;
+  const succeeded = ordered.filter((r) => r.errors.length === 0).length;
+  const partial = ordered.filter(
+    (r) => !r.unreachable && r.errors.length > 0 && r.succeeded.length > 0,
+  ).length;
+  const failed = ordered.filter(
+    (r) => r.unreachable || (r.succeeded.length === 0 && r.errors.length > 0),
+  ).length;
 
   console.log();
   const summary = [

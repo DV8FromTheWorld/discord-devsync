@@ -1,5 +1,5 @@
 import { loadMcpConfig, type McpServer, type ResolvedHost } from '../config.js';
-import { sshRun } from '../ssh.js';
+import { hostExec } from '../ssh.js';
 import { loadSecrets } from './secrets.js';
 
 function resolveEnvVars(value: string, secrets: Record<string, string>): string {
@@ -35,7 +35,7 @@ function buildMcpAddCommand(
   return args;
 }
 
-export function reconcileMcp(host: ResolvedHost): void {
+export async function reconcileMcp(host: ResolvedHost): Promise<void> {
   const mcpConfig = loadMcpConfig();
   const secrets = loadSecrets();
 
@@ -44,7 +44,7 @@ export function reconcileMcp(host: ResolvedHost): void {
     if (!server) continue;
 
     const addCmd = buildMcpAddCommand(serverName, server, secrets);
-    sshRun(host, `claude mcp remove ${serverName} 2>/dev/null || true`);
-    sshRun(host, addCmd.join(' '));
+    await hostExec(host, `claude mcp remove ${serverName} 2>/dev/null || true`);
+    await hostExec(host, addCmd.join(' '));
   }
 }

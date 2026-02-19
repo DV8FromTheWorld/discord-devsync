@@ -101,10 +101,10 @@ export async function run(args: string[]): Promise<void> {
         await fetch(hosts);
         break;
       case 'merge':
-        merge();
+        await merge();
         break;
       case 'push':
-        push(hosts);
+        await push(hosts);
         break;
       case 'commit':
         commit();
@@ -114,8 +114,8 @@ export async function run(args: string[]): Promise<void> {
         break;
       case 'full':
         await fetch(hosts);
-        merge();
-        push(hosts);
+        await merge();
+        await push(hosts);
         commit();
         break;
       default:
@@ -144,11 +144,11 @@ export async function run(args: string[]): Promise<void> {
         break;
       case 'full':
         await fetch(hosts);
-        merge();
+        await merge();
         consolidate();
         curiosity();
         cleanup();
-        push(hosts);
+        await push(hosts);
         commit();
         break;
       default:
@@ -170,7 +170,7 @@ export async function run(args: string[]): Promise<void> {
         process.exit(1);
       }
       const host = resolveHost(config, hostName);
-      onboard(host);
+      await onboard(host);
     } else {
       error(`Unknown host subcommand: ${subcommand}`);
       console.log(USAGE);

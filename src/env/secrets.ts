@@ -6,10 +6,10 @@ import { rsync, remotePath } from '../ssh.js';
 const ENV_FILE = 'env';
 const REMOTE_ENV_PATH = '.devsync-env';
 
-export function pushSecrets(host: ResolvedHost): void {
+export async function pushSecrets(host: ResolvedHost): Promise<void> {
   const envFile = resolve(SECRETS_DIR, ENV_FILE);
   if (!existsSync(envFile)) return;
-  rsync(envFile, remotePath(host, `~/${REMOTE_ENV_PATH}`));
+  await rsync(envFile, remotePath(host, `~/${REMOTE_ENV_PATH}`));
 }
 
 export function loadSecrets(): Record<string, string> {

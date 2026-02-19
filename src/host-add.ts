@@ -1,7 +1,7 @@
 import { input, select, confirm, checkbox } from '@inquirer/prompts';
 import { loadConfig, saveConfig, resolveHost, type Platform } from './config.js';
 import { info, success } from './log.js';
-import { sshCheck } from './ssh.js';
+import { checkConnection } from './ssh.js';
 import { onboard } from './onboard.js';
 
 export async function hostAdd(): Promise<void> {
@@ -13,16 +13,16 @@ export async function hostAdd(): Promise<void> {
   if (!hostname) return;
 
   // Test connectivity
-  const testHost = { hostname, isLocal: false } as Parameters<typeof sshCheck>[0];
+  const testHost = { hostname, isLocal: false } as Parameters<typeof checkConnection>[0];
   info(`Testing SSH connection to ${hostname}...`);
-  let connected = sshCheck(testHost);
+  let connected = checkConnection(testHost);
   while (!connected) {
     const retry = await confirm({
       message: `Could not connect to ${hostname}. Retry?`,
       default: true,
     });
     if (!retry) return;
-    connected = sshCheck(testHost);
+    connected = checkConnection(testHost);
   }
   success(`Connected to ${hostname}`);
 

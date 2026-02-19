@@ -3,7 +3,7 @@ import { resolve } from 'path';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { DOTFILES_DIR, type ResolvedHost } from '../config.js';
-import { rsync, remotePath, sshRun } from '../ssh.js';
+import { rsync, remotePath, hostExec } from '../ssh.js';
 
 const DEVSYNC_SOURCE_FILE = '.devsync.sh';
 
@@ -45,10 +45,10 @@ function assembleDevsyncSh(platform: string): string {
   return parts.join('\n') + '\n';
 }
 
-function ensureSourcedInRcFile(host: ResolvedHost, shell: string): void {
+async function ensureSourcedInRcFile(host: ResolvedHost, shell: string): Promise<void> {
   const config = SOURCE_LINES[shell];
   if (!config) return;
-  sshRun(
+  await hostExec(
     host,
     `grep -qF '${config.line}' ~/${config.rc} 2>/dev/null || echo '${config.line}' >> ~/${config.rc}`,
   );
@@ -62,16 +62,19 @@ function assembleDotfile(filename: string, platform: string): string | null {
   return null;
 }
 
-export function pushDotfiles(host: ResolvedHost): void {
+export async function pushDotfiles(host: ResolvedHost): Promise<void> {
   const tempDir = mkdtempSync(resolve(tmpdir(), 'devsync-dotfiles-'));
 
   try {
     const devsyncSh = assembleDevsyncSh(host.platform);
     writeFileSync(resolve(tempDir, DEVSYNC_SOURCE_FILE), devsyncSh);
-    rsync(resolve(tempDir, DEVSYNC_SOURCE_FILE), remotePath(host, `~/${DEVSYNC_SOURCE_FILE}`));
+    await rsync(
+      resolve(tempDir, DEVSYNC_SOURCE_FILE),
+      remotePath(host, `~/${DEVSYNC_SOURCE_FILE}`),
+    );
 
-    ensureSourcedInRcFile(host, 'zsh');
-    ensureSourcedInRcFile(host, 'bash');
+    await ensureSourcedInRcFile(host, 'zsh');
+    await ensureSourcedInRcFile(host, 'bash');
 
     const baseDir = resolve(DOTFILES_DIR, 'base');
     const platformDir = resolve(DOTFILES_DIR, host.platform);
@@ -93,7 +96,7 @@ export function pushDotfiles(host: ResolvedHost): void {
       if (!content) continue;
       const tmpFile = resolve(tempDir, dotfile);
       writeFileSync(tmpFile, content);
-      rsync(tmpFile, remotePath(host, `~/${dotfile}`));
+      await rsync(tmpFile, remotePath(host, `~/${dotfile}`));
     }
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

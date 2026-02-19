@@ -13,7 +13,7 @@ import {
   type Platform,
 } from './config.js';
 import { info, success } from './log.js';
-import { sshCheck } from './ssh.js';
+import { checkConnection } from './ssh.js';
 import { runImport } from './import.js';
 
 async function promptHost(
@@ -25,9 +25,9 @@ async function promptHost(
     if (!hostname) return null;
 
     // Test connectivity
-    const testHost = { hostname, isLocal: false } as Parameters<typeof sshCheck>[0];
+    const testHost = { hostname, isLocal: false } as Parameters<typeof checkConnection>[0];
     info(`  Testing SSH connection to ${hostname}...`);
-    let connected = sshCheck(testHost);
+    let connected = checkConnection(testHost);
     while (!connected) {
       const retry = await confirm({
         message: `Could not connect to ${hostname}. Retry?`,
@@ -37,7 +37,7 @@ async function promptHost(
         const skip = await confirm({ message: 'Skip this host?', default: true });
         if (skip) return null;
       }
-      connected = sshCheck(testHost);
+      connected = checkConnection(testHost);
     }
     success(`  Connected to ${hostname}`);
 

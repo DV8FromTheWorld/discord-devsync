@@ -1,4 +1,4 @@
-import { execFile, execFileSync, ExecFileSyncOptions } from 'child_process';
+import { execFile } from 'child_process';
 import { homedir } from 'os';
 import type { ResolvedHost } from './config.js';
 
@@ -12,29 +12,23 @@ export interface RunResult {
   stderr: string;
 }
 
-function runSync(cmd: string, args: string[], opts?: ExecFileSyncOptions): RunResult {
-  try {
-    const stdout = execFileSync(cmd, args, {
-      encoding: 'utf-8',
-      maxBuffer: 10 * 1024 * 1024,
-      ...opts,
-    });
-    return { ok: true, stdout: String(stdout), stderr: '' };
-  } catch (e: unknown) {
-    const err = e as { stdout?: string; stderr?: string };
-    return { ok: false, stdout: err.stdout ?? '', stderr: err.stderr ?? '' };
-  }
-}
+const DEFAULT_TIMEOUT = 30_000;
+const CONNECT_CHECK_TIMEOUT = 10_000;
 
-function runAsync(cmd: string, args: string[]): Promise<RunResult> {
+function exec(cmd: string, args: string[], timeout = DEFAULT_TIMEOUT): Promise<RunResult> {
   return new Promise((resolve) => {
     execFile(
       cmd,
       args,
-      { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 },
+      { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024, timeout },
       (err, stdout, stderr) => {
         if (err) {
-          resolve({ ok: false, stdout: stdout ?? '', stderr: stderr ?? '' });
+          const timedOut = (err as NodeJS.ErrnoException & { killed?: boolean }).killed;
+          resolve({
+            ok: false,
+            stdout: stdout ?? '',
+            stderr: timedOut ? 'timed out' : (stderr ?? ''),
+          });
         } else {
           resolve({ ok: true, stdout: stdout ?? '', stderr: stderr ?? '' });
         }
@@ -43,40 +37,38 @@ function runAsync(cmd: string, args: string[]): Promise<RunResult> {
   });
 }
 
-export function rsync(src: string, dst: string, flags: string[] = []): RunResult {
-  return runSync('rsync', ['-av', ...flags, src, dst]);
+// --- Host command execution ---
+
+export function hostExec(host: ResolvedHost, cmd: string): Promise<RunResult> {
+  if (host.isLocal) {
+    return exec('bash', ['-c', cmd]);
+  }
+  return exec('ssh', [host.hostname, cmd]);
 }
 
-export function rsyncAsync(src: string, dst: string, flags: string[] = []): Promise<RunResult> {
-  return runAsync('rsync', ['-av', ...flags, src, dst]);
+// --- Connectivity check ---
+
+export async function checkConnection(host: ResolvedHost): Promise<boolean> {
+  if (host.isLocal) return true;
+  const result = await exec(
+    'ssh',
+    ['-o', 'ConnectTimeout=10', host.hostname, 'echo ok'],
+    CONNECT_CHECK_TIMEOUT,
+  );
+  return result.ok && result.stdout.trim() === 'ok';
 }
 
-export function rsyncDelete(src: string, dst: string): RunResult {
+// --- Rsync ---
+
+export function rsync(src: string, dst: string, flags: string[] = []): Promise<RunResult> {
+  return exec('rsync', ['-av', ...flags, src, dst]);
+}
+
+export function rsyncMirror(src: string, dst: string): Promise<RunResult> {
   return rsync(src, dst, ['--delete']);
 }
 
-export function rsyncDeleteAsync(src: string, dst: string): Promise<RunResult> {
-  return rsyncAsync(src, dst, ['--delete']);
-}
-
-export function sshRun(host: ResolvedHost, cmd: string): RunResult {
-  if (host.isLocal) {
-    return runSync('bash', ['-c', cmd]);
-  }
-  return runSync('ssh', [host.hostname, cmd]);
-}
-
-export function sshRunAsync(host: ResolvedHost, cmd: string): Promise<RunResult> {
-  if (host.isLocal) {
-    return runAsync('bash', ['-c', cmd]);
-  }
-  return runAsync('ssh', [host.hostname, cmd]);
-}
-
-export function sshCheck(host: ResolvedHost): boolean {
-  const result = sshRun(host, 'echo ok');
-  return result.ok && result.stdout.trim() === 'ok';
-}
+// --- Path helpers ---
 
 export function remotePath(host: ResolvedHost, path: string): string {
   if (host.isLocal) return expandHome(path);

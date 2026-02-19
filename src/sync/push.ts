@@ -3,33 +3,37 @@ import { resolve } from 'path';
 import { tmpdir } from 'os';
 import ora from 'ora';
 import { MERGED_DIR, type ResolvedHost } from '../config.js';
-import { rsync, rsyncDelete, remotePath } from '../ssh.js';
+import { rsync, rsyncMirror, remotePath } from '../ssh.js';
 import { pushDotfiles } from '../env/dotfiles.js';
 import { pushSecrets } from '../env/secrets.js';
 import { reconcileMcp } from '../env/mcp.js';
 
-function pushClaudeContent(host: ResolvedHost, errors: string[]): string[] {
+async function pushClaudeContent(host: ResolvedHost, errors: string[]): Promise<string[]> {
   const pushed: string[] = [];
 
   const claudeMd = resolve(MERGED_DIR, 'CLAUDE.md');
   if (existsSync(claudeMd)) {
-    const r = rsync(claudeMd, remotePath(host, host.paths.claude_md));
+    const r = await rsync(claudeMd, remotePath(host, host.paths.claude_md));
     if (r.ok) pushed.push('CLAUDE.md');
     else errors.push('CLAUDE.md failed');
   }
 
   const kbDir = resolve(MERGED_DIR, 'discord-kb');
   if (existsSync(kbDir)) {
-    const r = rsyncDelete(kbDir + '/', remotePath(host, host.paths.kb + '/'));
+    const r = await rsyncMirror(kbDir + '/', remotePath(host, host.paths.kb + '/'));
     if (r.ok) pushed.push('KB');
     else errors.push('KB failed');
   }
 
-  pushFilteredSkills(host, pushed, errors);
+  await pushFilteredSkills(host, pushed, errors);
   return pushed;
 }
 
-function pushFilteredSkills(host: ResolvedHost, pushed: string[], errors: string[]): void {
+async function pushFilteredSkills(
+  host: ResolvedHost,
+  pushed: string[],
+  errors: string[],
+): Promise<void> {
   const mergedSkills = resolve(MERGED_DIR, '.claude', 'skills');
   if (!existsSync(mergedSkills)) return;
 
@@ -47,10 +51,10 @@ function pushFilteredSkills(host: ResolvedHost, pushed: string[], errors: string
     for (const skill of hostSkills) {
       const src = resolve(mergedSkills, skill);
       const dst = resolve(tempDir, skill);
-      rsync(src + '/', dst + '/');
+      await rsync(src + '/', dst + '/');
     }
 
-    const r = rsyncDelete(tempDir + '/', remotePath(host, host.paths.skills + '/'));
+    const r = await rsyncMirror(tempDir + '/', remotePath(host, host.paths.skills + '/'));
     if (r.ok) pushed.push(`skills (${hostSkills.length})`);
     else errors.push('skills failed');
   } finally {
@@ -58,13 +62,13 @@ function pushFilteredSkills(host: ResolvedHost, pushed: string[], errors: string
   }
 }
 
-function pushHost(host: ResolvedHost): { pushed: string[]; errors: string[] } {
+async function pushHost(host: ResolvedHost): Promise<{ pushed: string[]; errors: string[] }> {
   const errors: string[] = [];
-  const pushed = pushClaudeContent(host, errors);
+  const pushed = await pushClaudeContent(host, errors);
 
   if (host.dotfiles) {
     try {
-      pushDotfiles(host);
+      await pushDotfiles(host);
       pushed.push('dotfiles');
     } catch {
       errors.push('dotfiles failed');
@@ -73,7 +77,7 @@ function pushHost(host: ResolvedHost): { pushed: string[]; errors: string[] } {
 
   if (host.secrets) {
     try {
-      pushSecrets(host);
+      await pushSecrets(host);
       pushed.push('secrets');
     } catch {
       errors.push('secrets failed');
@@ -82,7 +86,7 @@ function pushHost(host: ResolvedHost): { pushed: string[]; errors: string[] } {
 
   if (host.mcp.size > 0) {
     try {
-      reconcileMcp(host);
+      await reconcileMcp(host);
       pushed.push('MCP');
     } catch {
       errors.push('MCP failed');
@@ -92,7 +96,7 @@ function pushHost(host: ResolvedHost): { pushed: string[]; errors: string[] } {
   return { pushed, errors };
 }
 
-export function push(hosts: ResolvedHost[]): void {
+export async function push(hosts: ResolvedHost[]): Promise<void> {
   if (hosts.length === 0) {
     console.log('No hosts configured.');
     return;
@@ -105,7 +109,7 @@ export function push(hosts: ResolvedHost[]): void {
 
   for (const host of hosts) {
     const spinner = ora({ text: host.name, prefixText: '  ' }).start();
-    const { pushed, errors } = pushHost(host);
+    const { pushed, errors } = await pushHost(host);
     spinner.stop();
 
     if (errors.length === 0) {
