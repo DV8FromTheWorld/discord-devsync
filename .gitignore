@@ -5,3 +5,4 @@ secrets/
 dream_log/
 *.log
 .DS_Store
+package-lock.json

@@ -1,23 +1,22 @@
 {
-  "name": "devsync",
+  "name": "discord-devsync",
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "devsync": "./devsync.ts"
+    "devsync": "./bin/devsync"
   },
   "scripts": {
-    "devsync": "tsx devsync.ts",
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "tsx": "^4.19.0",
     "yaml": "^2.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "prettier": "^3.5.0",
-    "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }
 }

@@ -4,11 +4,20 @@ Synchronizes developer environment config across multiple machines: Claude Code 
 
 Built as a superset of [claude-kb](https://github.com/DV8FromTheWorld/claude-kb), rewritten in TypeScript.
 
-## Quick Start
+## Install
 
 ```bash
-npm install
-npx tsx devsync.ts sync status
+git clone https://github.com/DV8FromTheWorld/discord-devsync.git
+cd discord-devsync
+pnpm install
+pnpm link --global   # makes `devsync` available everywhere
+```
+
+Or if `pnpm link --global` doesn't work in your environment (e.g. Nix-managed Node):
+
+```bash
+ln -sf "$(pwd)/bin/devsync" ~/.local/share/pnpm/devsync
+# or: ln -sf "$(pwd)/bin/devsync" ~/.local/bin/devsync
 ```
 
 ## Setup
