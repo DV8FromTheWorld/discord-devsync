@@ -1,50 +1,58 @@
-import { loadMcpConfig, type McpServer, type ResolvedHost } from '../config.js';
-import { hostExec } from '../ssh.js';
+import { loadMcpServers, type McpServer, type ResolvedHost } from '../config.js';
+import { readRemoteJson, writeRemoteJson } from '../ssh.js';
 import { loadSecrets } from './secrets.js';
+import { warn } from '../log.js';
 
 function resolveEnvVars(value: string, secrets: Record<string, string>): string {
   return value.replace(/\$\{(\w+)\}/g, (_, varName) => secrets[varName] ?? `\${${varName}}`);
 }
 
-function buildMcpAddCommand(
-  name: string,
+function resolveServerSecrets(
   server: McpServer,
   secrets: Record<string, string>,
-): string[] {
-  const args = ['claude', 'mcp', 'add', '--scope', 'user'];
-
-  if (server.transport === 'http') {
-    args.push('--transport', 'http');
+): McpServer {
+  if (server.type === 'http') {
+    const resolved: McpServer = { type: 'http', url: resolveEnvVars(server.url, secrets) };
     if (server.headers) {
-      for (const [key, value] of Object.entries(server.headers)) {
-        args.push('--header', `${key}: ${resolveEnvVars(value, secrets)}`);
+      resolved.headers = {};
+      for (const [k, v] of Object.entries(server.headers)) {
+        resolved.headers[k] = resolveEnvVars(v, secrets);
       }
     }
-    args.push(name, resolveEnvVars(server.url!, secrets));
+    return resolved;
   } else {
-    args.push('--transport', 'stdio');
+    const resolved: McpServer = { type: 'stdio', command: server.command };
+    if (server.args) resolved.args = [...server.args];
     if (server.env) {
-      for (const [key, value] of Object.entries(server.env)) {
-        args.push('--env', `${key}=${resolveEnvVars(value, secrets)}`);
+      resolved.env = {};
+      for (const [k, v] of Object.entries(server.env)) {
+        resolved.env[k] = resolveEnvVars(v, secrets);
       }
     }
-    args.push(name, '--', server.command!);
-    if (server.args) args.push(...server.args);
+    return resolved;
   }
-
-  return args;
 }
 
 export async function reconcileMcp(host: ResolvedHost): Promise<void> {
-  const mcpConfig = loadMcpConfig();
+  const allServers = loadMcpServers();
   const secrets = loadSecrets();
 
+  const filteredServers: Record<string, McpServer> = {};
   for (const serverName of host.mcp) {
-    const server = mcpConfig.servers[serverName];
-    if (!server) continue;
+    const server = allServers[serverName];
+    if (!server) {
+      warn(`  MCP server '${serverName}' in layer config but not in merged servers`, 'mcp');
+      continue;
+    }
+    filteredServers[serverName] = resolveServerSecrets(server, secrets);
+  }
 
-    const addCmd = buildMcpAddCommand(serverName, server, secrets);
-    await hostExec(host, `claude mcp remove ${serverName} 2>/dev/null || true`);
-    await hostExec(host, addCmd.join(' '));
+  try {
+    const claudeJson = await readRemoteJson(host, '~/.claude.json');
+    claudeJson.mcpServers = filteredServers;
+    await writeRemoteJson(host, '~/.claude.json', claudeJson);
+  } catch (e) {
+    warn(`  MCP reconciliation failed for ${host.name}: ${(e as Error).message}`, 'mcp');
+    throw e;
   }
 }

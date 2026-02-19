@@ -1,4 +1,4 @@
-import { loadConfig, loadMcpConfig, getHostPaths } from './config.js';
+import { loadConfig, loadMcpServers, getHostPaths } from './config.js';
 
 export function listHosts(): void {
   const config = loadConfig();
@@ -48,21 +48,32 @@ export function listLayers(): void {
 }
 
 export function listMcp(): void {
-  const mcpConfig = loadMcpConfig();
-  const servers = Object.entries(mcpConfig.servers);
+  const servers = Object.entries(loadMcpServers());
 
   if (servers.length === 0) {
-    console.log('No MCP servers configured in mcp-servers.yaml.');
+    console.log("No MCP servers configured. Run 'devsync mcp add' or 'devsync import'.");
     return;
   }
 
   console.log(`MCP Servers (${servers.length}):\n`);
   for (const [name, server] of servers) {
     console.log(`  ${name}`);
-    console.log(`    transport: ${server.transport}`);
-    if (server.url) console.log(`    url:       ${server.url}`);
-    if (server.command)
-      console.log(`    command:   ${server.command} ${(server.args ?? []).join(' ')}`);
+    console.log(`    type: ${server.type}`);
+    if (server.type === 'http') {
+      console.log(`    url:  ${server.url}`);
+      if (server.headers) {
+        for (const [k, v] of Object.entries(server.headers)) {
+          console.log(`    header: ${k}: ${v}`);
+        }
+      }
+    } else {
+      console.log(`    command: ${server.command} ${(server.args ?? []).join(' ')}`);
+      if (server.env) {
+        for (const [k, v] of Object.entries(server.env)) {
+          console.log(`    env: ${k}=${v}`);
+        }
+      }
+    }
     console.log();
   }
 }

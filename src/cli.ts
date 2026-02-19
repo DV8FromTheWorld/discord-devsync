@@ -13,25 +13,28 @@ import { init } from './init.js';
 import { hostAdd } from './host-add.js';
 import { listHosts, listLayers, listMcp } from './list.js';
 import { runImport } from './import.js';
+import { mcpAdd } from './mcp-add.js';
+import { mcpRemove } from './mcp-remove.js';
+import { permissionsList, permissionsAdd, permissionsRemove } from './permissions.js';
 
 const USAGE = `\
 Usage: devsync <command> [subcommand] [options]
 
 Setup:
   init                   First-time setup wizard
-  import                 Import existing content (CLAUDE.md, KB, skills, MCP)
+  import                 Import existing content (CLAUDE.md, KB, skills, MCP, permissions)
   help                   Show this help message
 
 Sync:
-  sync full              Complete sync cycle (fetch -> merge -> push -> commit)
-  sync fetch             Download files from all hosts
+  sync full              Complete sync cycle (pull -> merge -> push -> commit)
+  sync pull              Download files from all hosts
   sync merge             Merge downloaded files using Claude Code
   sync push [--host X]   Upload merged files to hosts
   sync commit            Commit changes to git
   sync status            Show current sync status
 
 Dream:
-  dream full             Sync + dream + push (fetch -> merge -> dream -> push -> commit)
+  dream full             Sync + dream + push (pull -> merge -> dream -> push -> commit)
   dream consolidate      Analyze and reorganize KB corpus
   dream curiosity        Generate investigation items
   dream cleanup          Enforce retention policy
@@ -43,7 +46,16 @@ Hosts:
 
 List:
   layer list             Show all layers and their contents
+
+MCP:
   mcp list               Show configured MCP servers
+  mcp add [name]         Add an MCP server interactively
+  mcp remove <name>      Remove an MCP server
+
+Permissions:
+  permissions list       Show synced permission rules
+  permissions add <rule> Add a permission rule
+  permissions remove <rule> Remove a permission rule
 `;
 
 function getHostFilter(args: string[]): string | undefined {
@@ -97,6 +109,7 @@ export async function run(args: string[]): Promise<void> {
 
     const hosts = getHosts();
     switch (subcommand) {
+      case 'pull':
       case 'fetch':
         await fetch(hosts);
         break;
@@ -188,8 +201,39 @@ export async function run(args: string[]): Promise<void> {
   } else if (command === 'mcp') {
     if (subcommand === 'list') {
       listMcp();
+    } else if (subcommand === 'add') {
+      await mcpAdd(args[2]);
+    } else if (subcommand === 'remove') {
+      const name = args[2];
+      if (!name) {
+        error('Usage: devsync mcp remove <name>');
+        process.exit(1);
+      }
+      mcpRemove(name);
     } else {
       error(`Unknown mcp subcommand: ${subcommand}`);
+      console.log(USAGE);
+      process.exit(1);
+    }
+  } else if (command === 'permissions') {
+    if (subcommand === 'list') {
+      permissionsList();
+    } else if (subcommand === 'add') {
+      const rule = args.slice(2).join(' ');
+      if (!rule) {
+        error('Usage: devsync permissions add <rule>');
+        process.exit(1);
+      }
+      permissionsAdd(rule);
+    } else if (subcommand === 'remove') {
+      const rule = args.slice(2).join(' ');
+      if (!rule) {
+        error('Usage: devsync permissions remove <rule>');
+        process.exit(1);
+      }
+      permissionsRemove(rule);
+    } else {
+      error(`Unknown permissions subcommand: ${subcommand}`);
       console.log(USAGE);
       process.exit(1);
     }

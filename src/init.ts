@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { input, select, confirm, checkbox } from '@inquirer/prompts';
 import {
   CONFIG_PATH,
-  MCP_CONFIG_PATH,
   DATA_DIR,
   MERGED_DIR,
   DOTFILES_DIR,
@@ -197,12 +196,6 @@ export async function init(): Promise<void> {
   // Write config
   saveConfig(config);
   success(`Config written to ${CONFIG_PATH}`);
-
-  // Write empty MCP config if it doesn't exist
-  if (!existsSync(MCP_CONFIG_PATH)) {
-    writeFileSync(MCP_CONFIG_PATH, 'servers: {}\n');
-    success(`MCP config written to ${MCP_CONFIG_PATH}`);
-  }
 
   // Write empty secrets file if it doesn't exist
   const secretsEnv = `${SECRETS_DIR}/env`;

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { resolve } from 'path';
-import { REMOTES_DIR, MERGED_DIR } from '../config.js';
+import { REMOTES_DIR, MERGED_DIR, MCP_SERVERS_PATH, PERMISSIONS_PATH } from '../config.js';
 import { info } from '../log.js';
 
 function globMdCount(dir: string): number {
@@ -50,6 +50,28 @@ export function status(): void {
       } else {
         console.log(`  - ${host} skills: missing`);
       }
+
+      const mcpFile = resolve(hostDir, 'mcp-servers.json');
+      if (existsSync(mcpFile)) {
+        try {
+          const mcpData = JSON.parse(readFileSync(mcpFile, 'utf-8'));
+          console.log(`  + ${host} MCP: ${Object.keys(mcpData).length} servers`);
+        } catch {
+          console.log(`  - ${host} MCP: invalid JSON`);
+        }
+      }
+
+      const permFile = resolve(hostDir, 'permissions.json');
+      if (existsSync(permFile)) {
+        try {
+          const permData = JSON.parse(readFileSync(permFile, 'utf-8'));
+          if (Array.isArray(permData)) {
+            console.log(`  + ${host} permissions: ${permData.length} rules`);
+          }
+        } catch {
+          console.log(`  - ${host} permissions: invalid JSON`);
+        }
+      }
     }
   } else {
     console.log('  No remote files downloaded');
@@ -81,5 +103,29 @@ export function status(): void {
     console.log(`  + merged/skills: ${skills.length} skills`);
   } else {
     console.log('  - No merged skills directory');
+  }
+
+  if (existsSync(MCP_SERVERS_PATH)) {
+    try {
+      const mcpData = JSON.parse(readFileSync(MCP_SERVERS_PATH, 'utf-8'));
+      console.log(`  + merged/mcp-servers.json: ${Object.keys(mcpData).length} servers`);
+    } catch {
+      console.log('  - merged/mcp-servers.json: invalid JSON');
+    }
+  } else {
+    console.log('  - No merged MCP servers');
+  }
+
+  if (existsSync(PERMISSIONS_PATH)) {
+    try {
+      const permData = JSON.parse(readFileSync(PERMISSIONS_PATH, 'utf-8'));
+      if (Array.isArray(permData)) {
+        console.log(`  + merged/permissions.json: ${permData.length} rules`);
+      }
+    } catch {
+      console.log('  - merged/permissions.json: invalid JSON');
+    }
+  } else {
+    console.log('  - No merged permissions');
   }
 }

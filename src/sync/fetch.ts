@@ -1,14 +1,72 @@
-import { mkdirSync } from 'fs';
+import { mkdirSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import ora from 'ora';
 import { REMOTES_DIR, type ResolvedHost } from '../config.js';
-import { rsync, rsyncMirror, remotePath, checkConnection } from '../ssh.js';
+import { rsync, rsyncMirror, remotePath, checkConnection, hostExec } from '../ssh.js';
 
 interface FetchResult {
   host: string;
   succeeded: string[];
   errors: string[];
   unreachable: boolean;
+}
+
+async function fetchPermissions(host: ResolvedHost, remoteDir: string): Promise<boolean> {
+  const result = await hostExec(host, 'cat ~/.claude/settings.json 2>/dev/null');
+  if (!result.ok || !result.stdout.trim()) return false;
+
+  let settings: Record<string, unknown>;
+  try {
+    settings = JSON.parse(result.stdout.trim());
+  } catch {
+    return false;
+  }
+
+  const permissions = settings.permissions as Record<string, unknown> | undefined;
+  const allow = permissions?.allow;
+  if (!Array.isArray(allow) || allow.length === 0) return false;
+
+  writeFileSync(resolve(remoteDir, 'permissions.json'), JSON.stringify(allow, null, 2) + '\n');
+  return true;
+}
+
+async function fetchMcpServers(host: ResolvedHost, remoteDir: string): Promise<boolean> {
+  const result = await hostExec(host, 'cat ~/.claude.json 2>/dev/null');
+  if (!result.ok || !result.stdout.trim()) return false;
+
+  let claudeJson: Record<string, unknown>;
+  try {
+    claudeJson = JSON.parse(result.stdout.trim());
+  } catch {
+    return false;
+  }
+
+  // Collect MCP servers from all scopes (user + project-scoped)
+  const allServers: Record<string, unknown> = {};
+
+  // User-scoped (top-level mcpServers)
+  const userServers = claudeJson.mcpServers;
+  if (userServers && typeof userServers === 'object') {
+    Object.assign(allServers, userServers);
+  }
+
+  // Project-scoped (under projects[path].mcpServers) — picks up servers added
+  // with default `--scope local` which most people use without thinking
+  const projects = claudeJson.projects;
+  if (projects && typeof projects === 'object') {
+    for (const projectData of Object.values(projects)) {
+      const data = projectData as Record<string, unknown>;
+      const mcpServers = data.mcpServers;
+      if (mcpServers && typeof mcpServers === 'object') {
+        Object.assign(allServers, mcpServers);
+      }
+    }
+  }
+
+  if (Object.keys(allServers).length === 0) return false;
+
+  writeFileSync(resolve(remoteDir, 'mcp-servers.json'), JSON.stringify(allServers, null, 2) + '\n');
+  return true;
 }
 
 async function fetchHost(host: ResolvedHost): Promise<FetchResult> {
@@ -51,6 +109,14 @@ async function fetchHost(host: ResolvedHost): Promise<FetchResult> {
   );
   if (skillsResult.ok) result.succeeded.push('skills');
   else result.errors.push('skills directory not found');
+
+  // MCP servers (extract from remote ~/.claude.json)
+  const mcpResult = await fetchMcpServers(host, remoteDir);
+  result.succeeded.push(mcpResult ? 'MCP' : 'MCP (none)');
+
+  // Permissions (extract from remote ~/.claude/settings.json)
+  const permResult = await fetchPermissions(host, remoteDir);
+  result.succeeded.push(permResult ? 'permissions' : 'permissions (none)');
 
   return result;
 }

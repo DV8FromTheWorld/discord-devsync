@@ -1,11 +1,9 @@
-import { existsSync, readdirSync, mkdirSync, cpSync, copyFileSync, writeFileSync } from 'fs';
-import { execFileSync } from 'child_process';
+import { existsSync, readFileSync, readdirSync, mkdirSync, cpSync, copyFileSync } from 'fs';
 import { resolve } from 'path';
 import { homedir } from 'os';
-import { input, confirm } from '@inquirer/prompts';
-import { loadConfig, getHostPaths, MERGED_DIR, MCP_CONFIG_PATH, type Paths } from './config.js';
+import { input, confirm, checkbox } from '@inquirer/prompts';
+import { loadConfig, getHostPaths, loadMcpServers, saveMcpServers, loadPermissions, savePermissions, MERGED_DIR, type McpServer, type Paths } from './config.js';
 import { info, success, warn } from './log.js';
-import { stringify as stringifyYaml } from 'yaml';
 
 function expandHome(p: string): string {
   return p.replace(/^~/, homedir());
@@ -92,79 +90,135 @@ export async function runImport(paths?: Paths): Promise<void> {
   if (skillCount > 0) info(`  Skills: ${skillCount} skills at ${skillsPath}`);
   else if (skillsPath) warn('  Skills: no skills found');
 
-  if (!hasClaude && kbCount === 0 && skillCount === 0) {
-    info('Nothing to import.');
-    return;
-  }
-
-  const doImport = await confirm({
-    message: 'Import found content into devsync?',
-    default: true,
-  });
-
-  if (!doImport) return;
-
-  mkdirSync(MERGED_DIR, { recursive: true });
-
-  if (hasClaude) {
-    copyFileSync(claudeMdPath, resolve(MERGED_DIR, 'CLAUDE.md'));
-    success('  Imported CLAUDE.md');
-  }
-
-  if (kbCount > 0) {
-    const mergedKb = resolve(MERGED_DIR, 'discord-kb');
-    mkdirSync(mergedKb, { recursive: true });
-    cpSync(kbPath, mergedKb, { recursive: true });
-    success(`  Imported KB (${kbCount} files)`);
-  }
-
-  if (skillCount > 0) {
-    const mergedSkills = resolve(MERGED_DIR, '.claude', 'skills');
-    mkdirSync(mergedSkills, { recursive: true });
-    cpSync(skillsPath, mergedSkills, { recursive: true });
-    success(`  Imported skills (${skillCount})`);
-  }
-
-  await importMcpServers();
-}
-
-async function importMcpServers(): Promise<void> {
-  try {
-    const result = execFileSync('claude', ['mcp', 'list'], {
-      encoding: 'utf-8',
-      timeout: 10000,
-    });
-
-    if (!result || result.includes('No MCP servers')) return;
-
-    const lines = result
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith('-'));
-
-    if (lines.length === 0) return;
-
-    info(`  Found ${lines.length} MCP server(s) configured locally`);
+  if (hasClaude || kbCount > 0 || skillCount > 0) {
     const doImport = await confirm({
-      message: 'Import MCP server names? (You may need to fill in details in mcp-servers.yaml)',
+      message: 'Import found content into devsync?',
       default: true,
     });
 
     if (doImport) {
-      const servers: Record<string, { transport: string; url: string }> = {};
-      for (const line of lines) {
-        const name = line.split(/\s+/)[0];
-        if (name) {
-          servers[name] = { transport: 'http', url: 'TODO: fill in URL' };
-        }
+      mkdirSync(MERGED_DIR, { recursive: true });
+
+      if (hasClaude) {
+        copyFileSync(claudeMdPath, resolve(MERGED_DIR, 'CLAUDE.md'));
+        success('  Imported CLAUDE.md');
       }
 
-      writeFileSync(MCP_CONFIG_PATH, stringifyYaml({ servers }, { lineWidth: 120 }));
-      success(
-        `  Imported ${Object.keys(servers).length} MCP server stubs (review mcp-servers.yaml)`,
-      );
+      if (kbCount > 0) {
+        const mergedKb = resolve(MERGED_DIR, 'discord-kb');
+        mkdirSync(mergedKb, { recursive: true });
+        cpSync(kbPath, mergedKb, { recursive: true });
+        success(`  Imported KB (${kbCount} files)`);
+      }
+
+      if (skillCount > 0) {
+        const mergedSkills = resolve(MERGED_DIR, '.claude', 'skills');
+        mkdirSync(mergedSkills, { recursive: true });
+        cpSync(skillsPath, mergedSkills, { recursive: true });
+        success(`  Imported skills (${skillCount})`);
+      }
+    }
+  }
+
+  // MCP and permissions import independently — they read from ~/.claude.json
+  // and ~/.claude/settings.json, not from the paths above
+  await importMcpServers();
+  await importPermissions();
+}
+
+async function importMcpServers(): Promise<void> {
+  try {
+    const claudeJsonPath = resolve(homedir(), '.claude.json');
+    if (!existsSync(claudeJsonPath)) return;
+
+    const raw = readFileSync(claudeJsonPath, 'utf-8');
+    const claudeJson = JSON.parse(raw);
+
+    // Collect MCP servers from all scopes
+    const found: Record<string, { server: McpServer; source: string }> = {};
+
+    // User-scoped servers (top-level mcpServers)
+    if (claudeJson.mcpServers && typeof claudeJson.mcpServers === 'object') {
+      for (const [name, config] of Object.entries(claudeJson.mcpServers)) {
+        const server = config as McpServer;
+        if (server.type === 'http' || server.type === 'stdio') {
+          found[name] = { server, source: 'user' };
+        }
+      }
+    }
+
+    // Project-scoped servers (under projects)
+    if (claudeJson.projects && typeof claudeJson.projects === 'object') {
+      for (const [projectPath, projectData] of Object.entries(claudeJson.projects)) {
+        const data = projectData as Record<string, unknown>;
+        const mcpServers = data.mcpServers as Record<string, McpServer> | undefined;
+        if (!mcpServers || typeof mcpServers !== 'object') continue;
+        for (const [name, server] of Object.entries(mcpServers)) {
+          if (server.type === 'http' || server.type === 'stdio') {
+            const shortPath = projectPath.replace(homedir(), '~');
+            found[name] = { server, source: shortPath };
+          }
+        }
+      }
+    }
+
+    if (Object.keys(found).length === 0) return;
+
+    info(`  Found ${Object.keys(found).length} MCP server(s) in ~/.claude.json`);
+
+    const choices = Object.entries(found).map(([name, { server, source }]) => ({
+      value: name,
+      name: `${name} (${server.type}, from ${source})`,
+      checked: true,
+    }));
+
+    const selected = await checkbox({
+      message: 'Select MCP servers to import:',
+      choices,
+    });
+
+    if (selected.length === 0) return;
+
+    const existing = loadMcpServers();
+    for (const name of selected) {
+      existing[name] = found[name].server;
+    }
+
+    saveMcpServers(existing);
+    success(`  Imported ${selected.length} MCP server(s) with full config`);
+  } catch {
+    // ~/.claude.json not found or invalid — skip silently
+  }
+}
+
+async function importPermissions(): Promise<void> {
+  try {
+    const settingsPath = resolve(homedir(), '.claude', 'settings.json');
+    if (!existsSync(settingsPath)) return;
+
+    const raw = readFileSync(settingsPath, 'utf-8');
+    const settings = JSON.parse(raw);
+
+    const permissions = settings.permissions as Record<string, unknown> | undefined;
+    const allow = permissions?.allow;
+    if (!Array.isArray(allow) || allow.length === 0) return;
+
+    const rules = allow.filter((p: unknown) => typeof p === 'string') as string[];
+    if (rules.length === 0) return;
+
+    info(`  Found ${rules.length} permission rule(s) in ~/.claude/settings.json`);
+    const doImport = await confirm({
+      message: 'Import permission rules into devsync?',
+      default: true,
+    });
+
+    if (doImport) {
+      const existing = loadPermissions();
+      const merged = [...new Set([...existing, ...rules])];
+      savePermissions(merged);
+      success(`  Imported ${rules.length} permission rule(s)`);
     }
   } catch {
-    // Claude CLI not available — skip silently
+    // settings.json not found or invalid — skip silently
   }
 }

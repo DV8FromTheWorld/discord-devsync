@@ -68,6 +68,33 @@ export function rsyncMirror(src: string, dst: string): Promise<RunResult> {
   return rsync(src, dst, ['--delete']);
 }
 
+// --- Remote JSON file helpers ---
+
+export async function readRemoteJson(
+  host: ResolvedHost,
+  remotePath_: string,
+): Promise<Record<string, unknown>> {
+  const result = await hostExec(host, `cat ${remotePath_} 2>/dev/null || echo "{}"`);
+  try {
+    return JSON.parse(result.stdout.trim());
+  } catch {
+    return {};
+  }
+}
+
+export async function writeRemoteJson(
+  host: ResolvedHost,
+  remotePath_: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const json = JSON.stringify(data, null, 2) + '\n';
+  const b64 = Buffer.from(json).toString('base64');
+  await hostExec(
+    host,
+    `printf '%s' '${b64}' | base64 -d > ${remotePath_}.tmp && mv ${remotePath_}.tmp ${remotePath_}`,
+  );
+}
+
 // --- Path helpers ---
 
 export function remotePath(host: ResolvedHost, path: string): string {

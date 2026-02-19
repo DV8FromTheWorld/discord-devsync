@@ -7,6 +7,7 @@ import { rsync, rsyncMirror, remotePath } from '../ssh.js';
 import { pushDotfiles } from '../env/dotfiles.js';
 import { pushSecrets } from '../env/secrets.js';
 import { reconcileMcp } from '../env/mcp.js';
+import { reconcilePermissions } from '../env/permissions.js';
 
 async function pushClaudeContent(host: ResolvedHost, errors: string[]): Promise<string[]> {
   const pushed: string[] = [];
@@ -91,6 +92,13 @@ async function pushHost(host: ResolvedHost): Promise<{ pushed: string[]; errors:
     } catch {
       errors.push('MCP failed');
     }
+  }
+
+  try {
+    const didPush = await reconcilePermissions(host);
+    if (didPush) pushed.push('permissions');
+  } catch {
+    errors.push('permissions failed');
   }
 
   return { pushed, errors };

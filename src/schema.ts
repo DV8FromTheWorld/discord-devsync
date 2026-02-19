@@ -48,35 +48,22 @@ export const ConfigSchema = z
     }
   });
 
-const McpServerSchema = z
-  .object({
-    transport: z.enum(['http', 'stdio'], { error: "transport must be 'http' or 'stdio'" }),
-    url: z.string().optional(),
-    headers: z.record(z.string(), z.string()).optional(),
-    command: z.string().optional(),
-    args: z.array(z.string()).optional(),
-    env: z.record(z.string(), z.string()).optional(),
-  })
-  .superRefine((server, ctx) => {
-    if (server.transport === 'http' && !server.url) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "http transport requires a 'url' field",
-        path: ['url'],
-      });
-    }
-    if (server.transport === 'stdio' && !server.command) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "stdio transport requires a 'command' field",
-        path: ['command'],
-      });
-    }
-  });
-
-export const McpConfigSchema = z.object({
-  servers: z.record(z.string(), McpServerSchema),
+const HttpMcpServerSchema = z.object({
+  type: z.literal('http'),
+  url: z.string().min(1, 'http server requires a url'),
+  headers: z.record(z.string(), z.string()).optional(),
 });
+
+const StdioMcpServerSchema = z.object({
+  type: z.literal('stdio'),
+  command: z.string().min(1, 'stdio server requires a command'),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+});
+
+const McpServerSchema = z.discriminatedUnion('type', [HttpMcpServerSchema, StdioMcpServerSchema]);
+
+export const McpServersSchema = z.record(z.string(), McpServerSchema);
 
 export function formatValidationErrors(errors: z.ZodError): string {
   return errors.issues

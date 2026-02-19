@@ -4,6 +4,8 @@ import { info, success, error } from '../log.js';
 import { mergeClaudeMd } from './merge-claude.js';
 import { mergeKbDirectories } from './merge-kb.js';
 import { mergeSkillsDirectories } from './merge-skills.js';
+import { mergeMcpServers } from './merge-mcp.js';
+import { mergePermissions } from './merge-permissions.js';
 import { collectJournalEntries } from './collect-journal.js';
 
 export async function merge(): Promise<void> {
@@ -18,6 +20,8 @@ export async function merge(): Promise<void> {
   mergeKbDirectories();
   collectJournalEntries();
   await mergeSkillsDirectories();
+  mergeMcpServers();
+  mergePermissions();
 
   success('Merge completed', 'sync');
 }
