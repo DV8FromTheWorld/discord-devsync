@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
 import { mkdtempSync, rmSync } from 'fs';
-import { homedir, tmpdir } from 'os';
+import { homedir } from 'os';
 import { resolve } from 'path';
 import type { ResolvedHost } from './config.js';
 
@@ -24,13 +24,17 @@ let muxDir: string | null = null;
 
 function getMuxDir(): string {
   if (!muxDir) {
-    muxDir = mkdtempSync(resolve(tmpdir(), 'devsync-ssh-'));
+    // Use /tmp directly to keep socket paths short — macOS /var/folders paths
+    // are ~70 chars, and Unix sockets have a ~104 char limit
+    muxDir = mkdtempSync('/tmp/ds-');
   }
   return muxDir;
 }
 
 function muxSocketPath(hostname: string): string {
-  return resolve(getMuxDir(), hostname);
+  // Hash hostname to keep socket path short
+  const short = hostname.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 20);
+  return resolve(getMuxDir(), short);
 }
 
 function sshOpts(hostname?: string): string[] {
