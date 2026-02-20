@@ -110,11 +110,11 @@ export async function init(): Promise<void> {
 
   const linuxClaudeMd = await input({
     message: 'Linux — Path to CLAUDE.md:',
-    default: '~/workspaces/discord/CLAUDE.md',
+    default: '~/workspace/discord/CLAUDE.md',
   });
   const linuxKb = await input({
     message: 'Linux — Path to KB directory:',
-    default: '~/workspaces/discord-kb',
+    default: '~/workspace/discord-kb',
   });
 
   const config: Config = {
