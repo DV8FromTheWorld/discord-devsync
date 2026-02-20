@@ -6,8 +6,8 @@ defaults:
       skills: ~/.claude/skills
   linux:
     paths:
-      claude_md: ~/workspaces/discord/CLAUDE.md
-      kb: ~/workspaces/discord-kb
+      claude_md: ~/workspace/discord/CLAUDE.md
+      kb: ~/workspace/discord-kb
       skills: ~/.claude/skills
 layers:
   core:
