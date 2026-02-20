@@ -105,7 +105,7 @@ export async function init(): Promise<void> {
   });
   const darwinKb = await input({
     message: 'macOS — Path to KB directory:',
-    default: '~/repos/discord-kb',
+    default: '~/discord-kb',
   });
 
   const linuxClaudeMd = await input({
@@ -114,7 +114,7 @@ export async function init(): Promise<void> {
   });
   const linuxKb = await input({
     message: 'Linux — Path to KB directory:',
-    default: '~/workspace/discord-kb',
+    default: '~/discord-kb',
   });
 
   const config: Config = {
