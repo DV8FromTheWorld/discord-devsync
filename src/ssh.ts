@@ -15,8 +15,8 @@ export interface RunResult {
 }
 
 const DEFAULT_TIMEOUT = 30_000;
-const CONNECT_CHECK_TIMEOUT = 5_000;
-const SSH_CONNECT_TIMEOUT = 5;
+const CONNECT_CHECK_TIMEOUT = 15_000;
+const SSH_CONNECT_TIMEOUT = 10;
 
 // --- SSH connection multiplexing ---
 
