@@ -13,7 +13,7 @@ export interface RunResult {
 }
 
 const DEFAULT_TIMEOUT = 30_000;
-const CONNECT_CHECK_TIMEOUT = 10_000;
+const CONNECT_CHECK_TIMEOUT = 5_000;
 
 function exec(cmd: string, args: string[], timeout = DEFAULT_TIMEOUT): Promise<RunResult> {
   return new Promise((resolve) => {

@@ -3,7 +3,7 @@ import { resolve } from 'path';
 import { tmpdir } from 'os';
 import ora from 'ora';
 import { MERGED_DIR, type ResolvedHost } from '../config.js';
-import { rsync, rsyncMirror, remotePath } from '../ssh.js';
+import { rsync, rsyncMirror, remotePath, hostExec } from '../ssh.js';
 import { pushDotfiles } from '../env/dotfiles.js';
 import { pushSecrets } from '../env/secrets.js';
 import { reconcileMcp } from '../env/mcp.js';
@@ -63,8 +63,15 @@ async function pushFilteredSkills(
   }
 }
 
+async function ensureRemoteDirs(host: ResolvedHost): Promise<void> {
+  const dirs = [host.paths.kb, host.paths.skills, '~/.claude'];
+  const mkdirCmd = dirs.map((d) => `mkdir -p ${d}`).join(' && ');
+  await hostExec(host, mkdirCmd);
+}
+
 async function pushHost(host: ResolvedHost): Promise<{ pushed: string[]; errors: string[] }> {
   const errors: string[] = [];
+  await ensureRemoteDirs(host);
   const pushed = await pushClaudeContent(host, errors);
 
   if (host.dotfiles) {
