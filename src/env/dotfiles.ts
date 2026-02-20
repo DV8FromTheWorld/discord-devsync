@@ -50,7 +50,7 @@ async function ensureSourcedInRcFile(host: ResolvedHost, shell: string): Promise
   if (!config) return;
   await hostExec(
     host,
-    `grep -qF '${config.line}' ~/${config.rc} 2>/dev/null || echo '${config.line}' >> ~/${config.rc}`,
+    `grep -qF '${config.line}' ~/${config.rc} 2>/dev/null || printf '\\n${config.line}\\n' >> ~/${config.rc}`,
   );
 }
 
