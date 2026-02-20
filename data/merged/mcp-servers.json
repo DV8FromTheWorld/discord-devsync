@@ -9,5 +9,9 @@
   "buildkite": {
     "type": "http",
     "url": "https://mcp.buildkite.com/mcp"
+  },
+  "notion": {
+    "type": "http",
+    "url": "https://mcp.notion.com/mcp"
   }
 }
