@@ -40,7 +40,9 @@ export function listLayers(): void {
     console.log(
       `    skills:   ${layer.skills === 'all' ? 'all' : (layer.skills ?? []).join(', ') || 'none'}`,
     );
-    console.log(`    mcp:      ${(layer.mcp ?? []).join(', ') || 'none'}`);
+    console.log(
+      `    mcp:      ${layer.mcp === 'all' ? 'all' : (layer.mcp ?? []).join(', ') || 'none'}`,
+    );
     console.log(`    dotfiles: ${layer.dotfiles ? 'yes' : 'no'}`);
     console.log(`    secrets:  ${layer.secrets ? 'yes' : 'no'}`);
     console.log();

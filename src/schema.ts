@@ -13,7 +13,7 @@ const PlatformDefaultsSchema = z.object({
 const LayerSchema = z.object({
   description: z.string().optional(),
   skills: z.union([z.literal('all'), z.array(z.string())]).optional(),
-  mcp: z.array(z.string()).optional(),
+  mcp: z.union([z.literal('all'), z.array(z.string())]).optional(),
   dotfiles: z.boolean().optional(),
   secrets: z.boolean().optional(),
 });

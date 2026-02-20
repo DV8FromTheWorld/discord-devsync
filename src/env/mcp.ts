@@ -38,7 +38,8 @@ export async function reconcileMcp(host: ResolvedHost): Promise<void> {
   const secrets = loadSecrets();
 
   const filteredServers: Record<string, McpServer> = {};
-  for (const serverName of host.mcp) {
+  const serverNames = host.mcp === 'all' ? Object.keys(allServers) : [...host.mcp];
+  for (const serverName of serverNames) {
     const server = allServers[serverName];
     if (!server) {
       warn(`  MCP server '${serverName}' in layer config but not in merged servers`, 'mcp');

@@ -85,7 +85,7 @@ async function pushHost(host: ResolvedHost): Promise<{ pushed: string[]; errors:
     }
   }
 
-  if (host.mcp.size > 0) {
+  if (host.mcp === 'all' || host.mcp.size > 0) {
     try {
       await reconcileMcp(host);
       pushed.push('MCP');
