@@ -32,3 +32,13 @@ hosts:
     platform: linux
     layers:
       - core
+  claude-code-charlie:
+    hostname: claude-code-charlie.coder
+    platform: linux
+    layers:
+      - core
+  austin-keener-workspace2:
+    hostname: austin-keener-workspace2.coder
+    platform: linux
+    layers:
+      - core
