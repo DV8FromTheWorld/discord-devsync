@@ -1,15 +1,9 @@
 import { mkdirSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
-import ora from 'ora';
 import { REMOTES_DIR, type ResolvedHost } from '../config.js';
 import { rsync, rsyncMirror, remotePath, checkConnection, hostExec } from '../ssh.js';
-
-interface FetchResult {
-  host: string;
-  succeeded: string[];
-  errors: string[];
-  unreachable: boolean;
-}
+import { debug } from '../log.js';
+import { type HostResult, timed, runParallel } from './parallel.js';
 
 async function fetchPermissions(host: ResolvedHost, remoteDir: string): Promise<boolean> {
   const result = await hostExec(host, 'cat ~/.claude/settings.json 2>/dev/null');
@@ -69,136 +63,69 @@ async function fetchMcpServers(host: ResolvedHost, remoteDir: string): Promise<b
   return true;
 }
 
-async function fetchHost(host: ResolvedHost): Promise<FetchResult> {
-  const result: FetchResult = { host: host.name, succeeded: [], errors: [], unreachable: false };
+async function fetchHost(host: ResolvedHost): Promise<HostResult> {
+  const hostStart = performance.now();
+  const result: HostResult = { host: host.name, succeeded: [], errors: [], unreachable: false };
+  const timings: string[] = [];
 
   // Check connectivity first (skip for localhost)
   if (!host.isLocal) {
-    const reachable = await checkConnection(host);
+    const { result: reachable, ms } = await timed('connect', () => checkConnection(host));
+    timings.push(`connect:${ms}ms`);
     if (!reachable) {
       result.unreachable = true;
       result.errors.push('host unreachable');
+      const wall = Math.round(performance.now() - hostStart);
+      debug(`${host.name} (${wall}ms) — ${timings.join(', ')}`);
       return result;
     }
   }
 
   const remoteDir = resolve(REMOTES_DIR, host.name);
   mkdirSync(remoteDir, { recursive: true });
-
-  // CLAUDE.md (single file copy)
-  const claudeResult = await rsync(
-    remotePath(host, host.paths.claude_md),
-    resolve(remoteDir, 'CLAUDE.md'),
-  );
-  if (claudeResult.ok) result.succeeded.push('CLAUDE.md');
-  else result.errors.push('CLAUDE.md not found');
-
-  // KB directory (mirror with --delete so local copy matches remote exactly)
   const kbDir = resolve(remoteDir, 'discord-kb');
   mkdirSync(kbDir, { recursive: true });
-  const kbResult = await rsyncMirror(remotePath(host, host.paths.kb + '/'), kbDir + '/');
-  if (kbResult.ok) result.succeeded.push('KB');
-  else result.errors.push('KB directory not found');
-
-  // Skills directory (mirror with --delete)
   const skillsDir = resolve(remoteDir, '.claude', 'skills');
   mkdirSync(skillsDir, { recursive: true });
-  const skillsResult = await rsyncMirror(
-    remotePath(host, host.paths.skills + '/'),
-    skillsDir + '/',
+
+  // Run all fetch operations in parallel — they're independent
+  const [claudeT, kbT, skillsT, mcpT, permT] = await Promise.all([
+    timed('claude.md', () =>
+      rsync(remotePath(host, host.paths.claude_md), resolve(remoteDir, 'CLAUDE.md')),
+    ),
+    timed('kb', () => rsyncMirror(remotePath(host, host.paths.kb + '/'), kbDir + '/')),
+    timed('skills', () =>
+      rsyncMirror(remotePath(host, host.paths.skills + '/'), skillsDir + '/'),
+    ),
+    timed('mcp', () => fetchMcpServers(host, remoteDir)),
+    timed('perms', () => fetchPermissions(host, remoteDir)),
+  ]);
+
+  timings.push(
+    `claude.md ${claudeT.ms}ms`,
+    `kb ${kbT.ms}ms`,
+    `skills ${skillsT.ms}ms`,
+    `mcp ${mcpT.ms}ms`,
+    `perms ${permT.ms}ms`,
   );
-  if (skillsResult.ok) result.succeeded.push('skills');
-  else result.errors.push('skills directory not found');
 
-  // MCP servers (extract from remote ~/.claude.json)
-  const mcpResult = await fetchMcpServers(host, remoteDir);
-  result.succeeded.push(mcpResult ? 'MCP' : 'MCP (none)');
+  if (claudeT.result.ok) result.succeeded.push('CLAUDE.md');
+  else result.errors.push(`CLAUDE.md not found (${host.paths.claude_md})`);
 
-  // Permissions (extract from remote ~/.claude/settings.json)
-  const permResult = await fetchPermissions(host, remoteDir);
-  result.succeeded.push(permResult ? 'permissions' : 'permissions (none)');
+  if (kbT.result.ok) result.succeeded.push('KB');
+  else result.errors.push(`KB not found (${host.paths.kb})`);
 
+  if (skillsT.result.ok) result.succeeded.push('skills');
+  else result.errors.push(`skills not found (${host.paths.skills})`);
+
+  result.succeeded.push(mcpT.result ? 'MCP' : 'MCP (none)');
+  result.succeeded.push(permT.result ? 'permissions' : 'permissions (none)');
+
+  const wall = Math.round(performance.now() - hostStart);
+  debug(`${host.name} (${wall}ms) — ${timings.join(', ')}`);
   return result;
 }
 
-function printResult(r: FetchResult): void {
-  if (r.unreachable) {
-    ora({ prefixText: '  ' }).fail(`${r.host} — unreachable`);
-    return;
-  }
-
-  if (r.errors.length === 0) {
-    ora({ prefixText: '  ' }).succeed(`${r.host} — ${r.succeeded.join(', ')}`);
-  } else if (r.succeeded.length > 0) {
-    ora({ prefixText: '  ' }).warn(r.host);
-    console.log(`        ${r.succeeded.join(', ')}`);
-    for (const err of r.errors) {
-      console.log(`      \x1b[31m✖\x1b[0m ${err}`);
-    }
-  } else {
-    ora({ prefixText: '  ' }).fail(r.host);
-    for (const err of r.errors) {
-      console.log(`      \x1b[31m✖\x1b[0m ${err}`);
-    }
-  }
-}
-
 export async function fetch(hosts: ResolvedHost[]): Promise<void> {
-  if (hosts.length === 0) {
-    console.log('No hosts configured.');
-    return;
-  }
-
-  console.log();
-
-  const total = hosts.length;
-  let completed = 0;
-  let errorCount = 0;
-
-  const spinner = ora({ prefixText: '  ' });
-
-  function updateSpinner(): void {
-    const errStr = errorCount > 0 ? `, ${errorCount} with errors` : '';
-    spinner.text = `${completed}/${total} complete${errStr}`;
-  }
-
-  updateSpinner();
-  spinner.start();
-
-  const results: FetchResult[] = [];
-  await Promise.all(
-    hosts.map(async (host) => {
-      const result = await fetchHost(host);
-      completed++;
-      if (result.errors.length > 0) errorCount++;
-      results.push(result);
-      updateSpinner();
-    }),
-  );
-
-  spinner.stop();
-
-  // Print in original host order
-  const ordered = hosts.map((h) => results.find((r) => r.host === h.name)!);
-  for (const result of ordered) {
-    printResult(result);
-  }
-
-  const succeeded = ordered.filter((r) => r.errors.length === 0).length;
-  const partial = ordered.filter(
-    (r) => !r.unreachable && r.errors.length > 0 && r.succeeded.length > 0,
-  ).length;
-  const failed = ordered.filter(
-    (r) => r.unreachable || (r.succeeded.length === 0 && r.errors.length > 0),
-  ).length;
-
-  console.log();
-  const summary = [
-    `${succeeded} ok`,
-    partial > 0 ? `${partial} partial` : '',
-    failed > 0 ? `${failed} failed` : '',
-  ]
-    .filter(Boolean)
-    .join(', ');
-  ora().succeed(`Fetch complete (${summary})`);
+  await runParallel('Pull', hosts, fetchHost);
 }

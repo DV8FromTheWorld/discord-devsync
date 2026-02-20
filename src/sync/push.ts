@@ -1,42 +1,18 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'fs';
 import { resolve } from 'path';
 import { tmpdir } from 'os';
-import ora from 'ora';
 import { MERGED_DIR, type ResolvedHost } from '../config.js';
-import { rsync, rsyncMirror, remotePath, hostExec } from '../ssh.js';
+import { rsync, rsyncMirror, remotePath, hostExec, checkConnection } from '../ssh.js';
+import { debug } from '../log.js';
 import { pushDotfiles } from '../env/dotfiles.js';
 import { pushSecrets } from '../env/secrets.js';
 import { reconcileMcp } from '../env/mcp.js';
 import { reconcilePermissions } from '../env/permissions.js';
+import { type HostResult, timed, runParallel } from './parallel.js';
 
-async function pushClaudeContent(host: ResolvedHost, errors: string[]): Promise<string[]> {
-  const pushed: string[] = [];
-
-  const claudeMd = resolve(MERGED_DIR, 'CLAUDE.md');
-  if (existsSync(claudeMd)) {
-    const r = await rsync(claudeMd, remotePath(host, host.paths.claude_md));
-    if (r.ok) pushed.push('CLAUDE.md');
-    else errors.push('CLAUDE.md failed');
-  }
-
-  const kbDir = resolve(MERGED_DIR, 'discord-kb');
-  if (existsSync(kbDir)) {
-    const r = await rsyncMirror(kbDir + '/', remotePath(host, host.paths.kb + '/'));
-    if (r.ok) pushed.push('KB');
-    else errors.push('KB failed');
-  }
-
-  await pushFilteredSkills(host, pushed, errors);
-  return pushed;
-}
-
-async function pushFilteredSkills(
-  host: ResolvedHost,
-  pushed: string[],
-  errors: string[],
-): Promise<void> {
+async function pushFilteredSkills(host: ResolvedHost): Promise<string | null> {
   const mergedSkills = resolve(MERGED_DIR, '.claude', 'skills');
-  if (!existsSync(mergedSkills)) return;
+  if (!existsSync(mergedSkills)) return null;
 
   const allSkills = readdirSync(mergedSkills, { withFileTypes: true })
     .filter((e) => e.isDirectory())
@@ -56,99 +32,164 @@ async function pushFilteredSkills(
     }
 
     const r = await rsyncMirror(tempDir + '/', remotePath(host, host.paths.skills + '/'));
-    if (r.ok) pushed.push(`skills (${hostSkills.length})`);
-    else errors.push('skills failed');
+    if (r.ok) return `skills (${hostSkills.length})`;
+    return null;
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
 }
 
 async function ensureRemoteDirs(host: ResolvedHost): Promise<void> {
-  const dirs = [host.paths.kb, host.paths.skills, '~/.claude'];
+  // dirname of claude_md path (e.g. ~/workspace/discord/ from ~/workspace/discord/CLAUDE.md)
+  const claudeMdDir = host.paths.claude_md.replace(/\/[^/]+$/, '');
+  const dirs = [claudeMdDir, host.paths.kb, host.paths.skills, '~/.claude'];
   const mkdirCmd = dirs.map((d) => `mkdir -p ${d}`).join(' && ');
   await hostExec(host, mkdirCmd);
 }
 
-async function pushHost(host: ResolvedHost): Promise<{ pushed: string[]; errors: string[] }> {
-  const errors: string[] = [];
-  await ensureRemoteDirs(host);
-  const pushed = await pushClaudeContent(host, errors);
+async function pushHost(host: ResolvedHost): Promise<HostResult> {
+  const hostStart = performance.now();
+  const result: HostResult = { host: host.name, succeeded: [], errors: [], unreachable: false };
+  const timings: string[] = [];
 
-  if (host.dotfiles) {
-    try {
-      await pushDotfiles(host);
-      pushed.push('dotfiles');
-    } catch {
-      errors.push('dotfiles failed');
-    }
-  }
-
-  if (host.secrets) {
-    try {
-      await pushSecrets(host);
-      pushed.push('secrets');
-    } catch {
-      errors.push('secrets failed');
-    }
-  }
-
-  if (host.mcp === 'all' || host.mcp.size > 0) {
-    try {
-      await reconcileMcp(host);
-      pushed.push('MCP');
-    } catch {
-      errors.push('MCP failed');
+  // Check connectivity first (skip for localhost)
+  if (!host.isLocal) {
+    const { result: reachable, ms } = await timed('connect', () => checkConnection(host));
+    timings.push(`connect:${ms}ms`);
+    if (!reachable) {
+      result.unreachable = true;
+      result.errors.push('host unreachable');
+      const wall = Math.round(performance.now() - hostStart);
+      debug(`${host.name} (${wall}ms) — ${timings.join(', ')}`);
+      return result;
     }
   }
 
   try {
-    const didPush = await reconcilePermissions(host);
-    if (didPush) pushed.push('permissions');
+    await ensureRemoteDirs(host);
   } catch {
-    errors.push('permissions failed');
+    result.errors.push('failed to create remote directories');
+    return result;
   }
 
-  return { pushed, errors };
+  // All push operations are independent after ensureRemoteDirs — run in parallel
+  const ops: Array<Promise<void>> = [];
+
+  // CLAUDE.md
+  const claudeMd = resolve(MERGED_DIR, 'CLAUDE.md');
+  if (existsSync(claudeMd)) {
+    ops.push(
+      (async () => {
+        const { result: r, ms } = await timed('claude.md', () =>
+          rsync(claudeMd, remotePath(host, host.paths.claude_md)),
+        );
+        timings.push(`claude.md ${ms}ms`);
+        if (r.ok) result.succeeded.push('CLAUDE.md');
+        else {
+          result.errors.push(`CLAUDE.md failed (${host.paths.claude_md})`);
+          debug(`rsync CLAUDE.md: ${r.stderr.trim()}`);
+        }
+      })(),
+    );
+  }
+
+  // KB
+  const kbDir = resolve(MERGED_DIR, 'discord-kb');
+  if (existsSync(kbDir)) {
+    ops.push(
+      (async () => {
+        const { result: r, ms } = await timed('kb', () =>
+          rsyncMirror(kbDir + '/', remotePath(host, host.paths.kb + '/')),
+        );
+        timings.push(`kb ${ms}ms`);
+        if (r.ok) result.succeeded.push('KB');
+        else {
+          result.errors.push(`KB failed (${host.paths.kb})`);
+          debug(`rsync KB: ${r.stderr.trim()}`);
+        }
+      })(),
+    );
+  }
+
+  // Filtered skills
+  ops.push(
+    (async () => {
+      try {
+        const { result: label, ms } = await timed('skills', () => pushFilteredSkills(host));
+        timings.push(`skills ${ms}ms`);
+        if (label) result.succeeded.push(label);
+        else result.errors.push('skills failed');
+      } catch {
+        result.errors.push('skills failed');
+      }
+    })(),
+  );
+
+  // Dotfiles
+  if (host.dotfiles) {
+    ops.push(
+      (async () => {
+        try {
+          const { ms } = await timed('dotfiles', () => pushDotfiles(host));
+          timings.push(`dotfiles ${ms}ms`);
+          result.succeeded.push('dotfiles');
+        } catch {
+          result.errors.push('dotfiles failed');
+        }
+      })(),
+    );
+  }
+
+  // Secrets
+  if (host.secrets) {
+    ops.push(
+      (async () => {
+        try {
+          const { ms } = await timed('secrets', () => pushSecrets(host));
+          timings.push(`secrets ${ms}ms`);
+          result.succeeded.push('secrets');
+        } catch {
+          result.errors.push('secrets failed');
+        }
+      })(),
+    );
+  }
+
+  // MCP
+  if (host.mcp === 'all' || host.mcp.size > 0) {
+    ops.push(
+      (async () => {
+        try {
+          const { ms } = await timed('mcp', () => reconcileMcp(host));
+          timings.push(`mcp ${ms}ms`);
+          result.succeeded.push('MCP');
+        } catch {
+          result.errors.push('MCP failed');
+        }
+      })(),
+    );
+  }
+
+  // Permissions
+  ops.push(
+    (async () => {
+      try {
+        const { result: didPush, ms } = await timed('perms', () => reconcilePermissions(host));
+        timings.push(`perms ${ms}ms`);
+        if (didPush) result.succeeded.push('permissions');
+      } catch {
+        result.errors.push('permissions failed');
+      }
+    })(),
+  );
+
+  await Promise.all(ops);
+
+  const wall = Math.round(performance.now() - hostStart);
+  debug(`${host.name} (${wall}ms) — ${timings.join(', ')}`);
+  return result;
 }
 
 export async function push(hosts: ResolvedHost[]): Promise<void> {
-  if (hosts.length === 0) {
-    console.log('No hosts configured.');
-    return;
-  }
-
-  console.log();
-
-  let succeeded = 0;
-  let failed = 0;
-
-  for (const host of hosts) {
-    const spinner = ora({ text: host.name, prefixText: '  ' }).start();
-    const { pushed, errors } = await pushHost(host);
-    spinner.stop();
-
-    if (errors.length === 0) {
-      ora({ prefixText: '  ' }).succeed(`${host.name} — ${pushed.join(', ')}`);
-      succeeded++;
-    } else if (pushed.length > 0) {
-      ora({ prefixText: '  ' }).warn(host.name);
-      console.log(`        ${pushed.join(', ')}`);
-      for (const err of errors) {
-        console.log(`      \x1b[31m✖\x1b[0m ${err}`);
-      }
-      succeeded++;
-    } else {
-      ora({ prefixText: '  ' }).fail(host.name);
-      for (const err of errors) {
-        console.log(`      \x1b[31m✖\x1b[0m ${err}`);
-      }
-      failed++;
-    }
-  }
-
-  console.log();
-  const summary = [`${succeeded} ok`, failed > 0 ? `${failed} failed` : '']
-    .filter(Boolean)
-    .join(', ');
-  ora().succeed(`Push complete (${summary})`);
+  await runParallel('\nPush', hosts, pushHost);
 }
