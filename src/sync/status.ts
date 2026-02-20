@@ -18,7 +18,7 @@ function globMdCount(dir: string): number {
 }
 
 export function status(): void {
-  info('Sync Status Report', 'status');
+  info('Sync Status Report');
   console.log();
   console.log('Remote files:');
 

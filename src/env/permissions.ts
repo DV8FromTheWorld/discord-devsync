@@ -18,7 +18,7 @@ export async function reconcilePermissions(host: ResolvedHost): Promise<boolean>
     await writeRemoteJson(host, '~/.claude/settings.json', settings);
     return true;
   } catch (e) {
-    warn(`  Permissions sync failed for ${host.name}: ${(e as Error).message}`, 'permissions');
+    warn(`  Permissions sync failed for ${host.name}: ${(e as Error).message}`);
     throw e;
   }
 }

@@ -42,7 +42,7 @@ export async function reconcileMcp(host: ResolvedHost): Promise<void> {
   for (const serverName of serverNames) {
     const server = allServers[serverName];
     if (!server) {
-      warn(`  MCP server '${serverName}' in layer config but not in merged servers`, 'mcp');
+      warn(`  MCP server '${serverName}' in layer config but not in merged servers`);
       continue;
     }
     filteredServers[serverName] = resolveServerSecrets(server, secrets);
@@ -70,7 +70,7 @@ export async function reconcileMcp(host: ResolvedHost): Promise<void> {
 
     await writeRemoteJson(host, '~/.claude.json', claudeJson);
   } catch (e) {
-    warn(`  MCP reconciliation failed for ${host.name}: ${(e as Error).message}`, 'mcp');
+    warn(`  MCP reconciliation failed for ${host.name}: ${(e as Error).message}`);
     throw e;
   }
 }

@@ -1,5 +1,5 @@
 import { configExists, loadConfig, resolveAllHosts, resolveHost } from './config.js';
-import { error } from './log.js';
+import { error, setVerbose } from './log.js';
 import { fetch } from './sync/fetch.js';
 import { merge } from './sync/merge.js';
 import { push } from './sync/push.js';
@@ -80,6 +80,11 @@ function requireConfig() {
 }
 
 export async function run(args: string[]): Promise<void> {
+  if (args.includes('--verbose') || args.includes('-v')) {
+    setVerbose(true);
+    args = args.filter((a) => a !== '--verbose' && a !== '-v');
+  }
+
   if (args.length === 0 || args[0] === '-h' || args[0] === '--help' || args[0] === 'help') {
     console.log(USAGE);
     return;

@@ -4,7 +4,7 @@ import { DREAM_LOG_DIR, PROJECT_ROOT } from '../config.js';
 import { info, success, error } from '../log.js';
 
 export function consolidate(): void {
-  info('Starting dream consolidation...', 'dream');
+  info('Starting dream consolidation...');
 
   mkdirSync(DREAM_LOG_DIR, { recursive: true });
   const today = new Date().toISOString().slice(0, 10);
@@ -35,7 +35,7 @@ Rules:
 
 When done, print a summary of actions taken.`;
 
-  info('Invoking Claude Code for KB consolidation...', 'dream');
+  info('Invoking Claude Code for KB consolidation...');
   try {
     execFileSync(
       'claude',
@@ -43,9 +43,9 @@ When done, print a summary of actions taken.`;
       { cwd: PROJECT_ROOT, stdio: 'inherit' },
     );
   } catch {
-    error('Dream consolidation failed', 'dream');
+    error('Dream consolidation failed');
     process.exit(1);
   }
 
-  success('Dream consolidation completed', 'dream');
+  success('Dream consolidation completed');
 }

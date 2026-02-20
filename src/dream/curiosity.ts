@@ -5,7 +5,7 @@ import { MERGED_DIR, PROJECT_ROOT } from '../config.js';
 import { info, success, error } from '../log.js';
 
 export function curiosity(): void {
-  info('Starting curiosity generation...', 'dream');
+  info('Starting curiosity generation...');
 
   mkdirSync(resolve(MERGED_DIR, 'discord-kb', 'curiosity'), { recursive: true });
 
@@ -46,7 +46,7 @@ Rules:
 
 Print a brief summary when done.`;
 
-  info('Invoking Claude Code for curiosity generation...', 'dream');
+  info('Invoking Claude Code for curiosity generation...');
   try {
     execFileSync(
       'claude',
@@ -57,9 +57,9 @@ Print a brief summary when done.`;
       },
     );
   } catch {
-    error('Curiosity generation failed', 'dream');
+    error('Curiosity generation failed');
     process.exit(1);
   }
 
-  success('Curiosity generation completed', 'dream');
+  success('Curiosity generation completed');
 }
