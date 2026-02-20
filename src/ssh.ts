@@ -14,6 +14,9 @@ export interface RunResult {
 
 const DEFAULT_TIMEOUT = 30_000;
 const CONNECT_CHECK_TIMEOUT = 5_000;
+const SSH_CONNECT_TIMEOUT = 5;
+
+const SSH_OPTS = ['-o', `ConnectTimeout=${SSH_CONNECT_TIMEOUT}`];
 
 function exec(cmd: string, args: string[], timeout = DEFAULT_TIMEOUT): Promise<RunResult> {
   return new Promise((resolve) => {
@@ -43,7 +46,7 @@ export function hostExec(host: ResolvedHost, cmd: string): Promise<RunResult> {
   if (host.isLocal) {
     return exec('bash', ['-c', cmd]);
   }
-  return exec('ssh', [host.hostname, cmd]);
+  return exec('ssh', [...SSH_OPTS, host.hostname, cmd]);
 }
 
 // --- Connectivity check ---
@@ -52,7 +55,7 @@ export async function checkConnection(host: ResolvedHost): Promise<boolean> {
   if (host.isLocal) return true;
   const result = await exec(
     'ssh',
-    ['-o', 'ConnectTimeout=10', host.hostname, 'echo ok'],
+    [...SSH_OPTS, host.hostname, 'echo ok'],
     CONNECT_CHECK_TIMEOUT,
   );
   return result.ok && result.stdout.trim() === 'ok';
@@ -61,7 +64,7 @@ export async function checkConnection(host: ResolvedHost): Promise<boolean> {
 // --- Rsync ---
 
 export function rsync(src: string, dst: string, flags: string[] = []): Promise<RunResult> {
-  return exec('rsync', ['-av', ...flags, src, dst]);
+  return exec('rsync', ['-av', '-e', `ssh -o ConnectTimeout=${SSH_CONNECT_TIMEOUT}`, ...flags, src, dst]);
 }
 
 export function rsyncMirror(src: string, dst: string): Promise<RunResult> {
