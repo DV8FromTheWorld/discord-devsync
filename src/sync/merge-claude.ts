@@ -2,7 +2,7 @@ import { existsSync, statSync, mkdirSync, readdirSync, readFileSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { resolve } from 'path';
 import { REMOTES_DIR, MERGED_DIR, PROJECT_ROOT } from '../config.js';
-import { info, success, warn, error } from '../log.js';
+import { debug, warn, error } from '../log.js';
 
 function findRemoteClaudes(): string[] {
   if (!existsSync(REMOTES_DIR)) return [];
@@ -11,16 +11,19 @@ function findRemoteClaudes(): string[] {
     .filter((f) => existsSync(f));
 }
 
-export function mergeClaudeMd(): void {
+export function mergeClaudeMd(): string | null {
   const remoteFiles = findRemoteClaudes();
+  const mergedFile = resolve(MERGED_DIR, 'CLAUDE.md');
   if (remoteFiles.length === 0) {
-    error("No CLAUDE.md files found in remotes/. Run 'fetch' first.", 'merge');
-    process.exit(1);
+    if (existsSync(mergedFile)) {
+      debug('No remote CLAUDE.md files found. Keeping existing merged version.');
+    } else {
+      warn('No CLAUDE.md files found in remotes/ or merged/.');
+    }
+    return null;
   }
 
-  info(`Found ${remoteFiles.length} CLAUDE.md files`, 'merge');
-
-  const mergedFile = resolve(MERGED_DIR, 'CLAUDE.md');
+  debug(`Found ${remoteFiles.length} CLAUDE.md files`);
   mkdirSync(MERGED_DIR, { recursive: true });
 
   let needMerge = true;
@@ -28,8 +31,8 @@ export function mergeClaudeMd(): void {
     const mergedMtime = statSync(mergedFile).mtimeMs;
     needMerge = remoteFiles.some((f) => statSync(f).mtimeMs > mergedMtime);
     if (!needMerge) {
-      info('No remote CLAUDE.md files changed since last merge. Skipping.', 'merge');
-      return;
+      debug('No remote CLAUDE.md files changed since last merge. Skipping.');
+      return null;
     }
   }
 
@@ -44,7 +47,7 @@ export function mergeClaudeMd(): void {
     'Print brief summary when done.',
   ].join('\n');
 
-  info('Invoking Claude Code to merge CLAUDE.md files...', 'merge');
+  debug('Invoking Claude Code to merge CLAUDE.md files...');
   try {
     execFileSync(
       'claude',
@@ -55,14 +58,14 @@ export function mergeClaudeMd(): void {
       },
     );
   } catch {
-    error('CLAUDE.md merge failed', 'merge');
+    error('CLAUDE.md merge failed');
     process.exit(1);
   }
 
   if (!existsSync(mergedFile)) {
-    error('Merged CLAUDE.md not created at expected location', 'merge');
+    error('Merged CLAUDE.md not created at expected location');
     process.exit(1);
   }
 
-  success('CLAUDE.md merge completed', 'merge');
+  return 'CLAUDE.md';
 }

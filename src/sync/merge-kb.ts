@@ -4,7 +4,7 @@ import { resolve, relative } from 'path';
 import { cpSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { REMOTES_DIR, MERGED_DIR, PROJECT_ROOT } from '../config.js';
-import { info, success, warn } from '../log.js';
+import { debug, warn } from '../log.js';
 
 const EXCLUDED_PREFIXES = ['journal/', 'curiosity/'];
 
@@ -46,7 +46,7 @@ function findAllKbFiles(): Set<string> {
 }
 
 function mergeKbFileWithClaude(kbFile: string, newerRemotes: string[]): boolean {
-  info(`  Multiple hosts updated ${kbFile} — using Claude to merge`, 'kb-merge');
+  debug(`  Multiple hosts updated ${kbFile} — using Claude to merge`);
 
   const tempDir = mkdtempSync(resolve(tmpdir(), 'devsync-kb-'));
   try {
@@ -88,14 +88,16 @@ function mergeKbFileWithClaude(kbFile: string, newerRemotes: string[]): boolean 
   }
 }
 
-export function mergeKbDirectories(): void {
-  info('Starting KB directory merge...', 'kb-merge');
+export function mergeKbDirectories(): string | null {
+  debug('Starting KB directory merge...');
 
   const mergedKb = resolve(MERGED_DIR, 'discord-kb');
   mkdirSync(mergedKb, { recursive: true });
 
   const allKbFiles = [...findAllKbFiles()].sort();
-  info(`Found ${allKbFiles.length} unique KB files (excluding journal/curiosity)`, 'kb-merge');
+  debug(`Found ${allKbFiles.length} unique KB files (excluding journal/curiosity)`);
+
+  let mergedCount = 0;
 
   for (const kbFile of allKbFiles) {
     const mergedFile = resolve(mergedKb, kbFile);
@@ -113,22 +115,26 @@ export function mergeKbDirectories(): void {
       continue; // no changes
     } else if (newerRemotes.length === 1) {
       const host = relative(REMOTES_DIR, newerRemotes[0]).split('/')[0];
-      info(`  ${kbFile}: updated by ${host} — copying`, 'kb-merge');
+      debug(`  ${kbFile}: updated by ${host} — copying`);
       mkdirSync(resolve(mergedFile, '..'), { recursive: true });
       copyFileSync(newerRemotes[0], mergedFile);
+      mergedCount++;
     } else {
       mkdirSync(resolve(mergedFile, '..'), { recursive: true });
       if (mergeKbFileWithClaude(kbFile, newerRemotes)) {
-        success(`  Merged ${kbFile} from ${newerRemotes.length} sources`, 'kb-merge');
+        debug(`  Merged ${kbFile} from ${newerRemotes.length} sources`);
+        mergedCount++;
       } else {
-        warn(`  Merge failed for ${kbFile} — using most recent version`, 'kb-merge');
+        warn(`  Merge failed for ${kbFile} — using most recent version`);
         const newest = newerRemotes.reduce((a, b) =>
           statSync(a).mtimeMs > statSync(b).mtimeMs ? a : b,
         );
         copyFileSync(newest, mergedFile);
+        mergedCount++;
       }
     }
   }
 
-  success('KB directory merge completed', 'kb-merge');
+  if (mergedCount === 0) return null;
+  return `${mergedCount} KB files`;
 }

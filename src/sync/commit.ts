@@ -1,20 +1,31 @@
 import { execFileSync } from 'child_process';
+import ora from 'ora';
 import { PROJECT_ROOT } from '../config.js';
-import { info, success, warn } from '../log.js';
 
 export function commit(): void {
-  info('Committing changes to git...', 'sync');
+  console.log('\nCommit:');
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  // Check if there's anything to commit first
+  execFileSync('git', ['add', 'data/'], { cwd: PROJECT_ROOT, stdio: 'pipe' });
 
   try {
-    execFileSync('git', ['add', '-A'], { cwd: PROJECT_ROOT, stdio: 'pipe' });
-    execFileSync('git', ['commit', '-m', `sync ${timestamp}`], {
+    const status = execFileSync('git', ['diff', '--cached', '--quiet'], {
       cwd: PROJECT_ROOT,
       stdio: 'pipe',
     });
-    success('Changes committed', 'sync');
+    // If diff --cached --quiet exits 0, there's nothing staged
+    ora({ prefixText: '  ' }).info('Nothing to commit');
   } catch {
-    warn('Nothing to commit or git error', 'sync');
+    // Exit code 1 = there are staged changes
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    try {
+      execFileSync('git', ['commit', '-m', `sync ${timestamp}`], {
+        cwd: PROJECT_ROOT,
+        stdio: 'pipe',
+      });
+      ora({ prefixText: '  ' }).succeed('Changes committed');
+    } catch {
+      ora({ prefixText: '  ' }).fail('Commit failed');
+    }
   }
 }

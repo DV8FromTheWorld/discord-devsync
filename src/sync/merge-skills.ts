@@ -4,7 +4,7 @@ import { resolve, relative } from 'path';
 import { cpSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { REMOTES_DIR, MERGED_DIR, PROJECT_ROOT } from '../config.js';
-import { info, success, warn } from '../log.js';
+import { debug, warn } from '../log.js';
 import { rsyncMirror } from '../ssh.js';
 
 function findAllSkills(): Set<string> {
@@ -40,7 +40,7 @@ function newestMtime(dir: string): number {
 }
 
 function mergeSkillWithClaude(skillName: string, newerRemotes: string[]): boolean {
-  info(`  Multiple hosts updated skill '${skillName}' — using Claude to merge`, 'skills-merge');
+  debug(`  Multiple hosts updated skill '${skillName}' — using Claude to merge`);
 
   const tempDir = mkdtempSync(resolve(tmpdir(), 'devsync-skill-'));
   try {
@@ -87,14 +87,16 @@ function mergeSkillWithClaude(skillName: string, newerRemotes: string[]): boolea
   }
 }
 
-export async function mergeSkillsDirectories(): Promise<void> {
-  info('Starting skills directory merge...', 'skills-merge');
+export async function mergeSkillsDirectories(): Promise<string | null> {
+  debug('Starting skills directory merge...');
 
   const mergedSkills = resolve(MERGED_DIR, '.claude', 'skills');
   mkdirSync(mergedSkills, { recursive: true });
 
   const allSkills = [...findAllSkills()].sort();
-  info(`Found ${allSkills.length} unique skills`, 'skills-merge');
+  debug(`Found ${allSkills.length} unique skills`);
+
+  let mergedCount = 0;
 
   for (const skillName of allSkills) {
     const mergedSkill = resolve(mergedSkills, skillName);
@@ -112,23 +114,24 @@ export async function mergeSkillsDirectories(): Promise<void> {
       continue;
     } else if (newerRemotes.length === 1) {
       const host = relative(REMOTES_DIR, newerRemotes[0]).split('/')[0];
-      info(`  ${skillName}: updated by ${host} — copying`, 'skills-merge');
+      debug(`  ${skillName}: updated by ${host} — copying`);
       mkdirSync(mergedSkill, { recursive: true });
       await rsyncMirror(newerRemotes[0] + '/', mergedSkill + '/');
+      mergedCount++;
     } else {
       mkdirSync(mergedSkill, { recursive: true });
       if (mergeSkillWithClaude(skillName, newerRemotes)) {
-        success(
-          `  Merged skill '${skillName}' from ${newerRemotes.length} sources`,
-          'skills-merge',
-        );
+        debug(`  Merged skill '${skillName}' from ${newerRemotes.length} sources`);
+        mergedCount++;
       } else {
-        warn(`  Merge failed for skill '${skillName}' — using most recent`, 'skills-merge');
+        warn(`  Merge failed for skill '${skillName}' — using most recent`);
         const newest = newerRemotes.reduce((a, b) => (newestMtime(a) > newestMtime(b) ? a : b));
         await rsyncMirror(newest + '/', mergedSkill + '/');
+        mergedCount++;
       }
     }
   }
 
-  success('Skills directory merge completed', 'skills-merge');
+  if (mergedCount === 0) return null;
+  return `${mergedCount} skills`;
 }

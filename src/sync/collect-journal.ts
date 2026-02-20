@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { REMOTES_DIR, MERGED_DIR } from '../config.js';
-import { info, success } from '../log.js';
+import { debug } from '../log.js';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}\.md$/;
 
-export function collectJournalEntries(): void {
-  info('Collecting journal entries from remotes...', 'journal');
+export function collectJournalEntries(): string | null {
+  debug('Collecting journal entries from remotes...');
 
   const mergedJournal = resolve(MERGED_DIR, 'discord-kb', 'journal');
   mkdirSync(mergedJournal, { recursive: true });
@@ -14,7 +14,7 @@ export function collectJournalEntries(): void {
   // Group journal files by date across all remotes
   const entriesByDate = new Map<string, { hostname: string; path: string }[]>();
 
-  if (!existsSync(REMOTES_DIR)) return;
+  if (!existsSync(REMOTES_DIR)) return null;
 
   for (const host of readdirSync(REMOTES_DIR)) {
     const journalDir = resolve(REMOTES_DIR, host, 'discord-kb', 'journal');
@@ -29,21 +29,21 @@ export function collectJournalEntries(): void {
   }
 
   if (entriesByDate.size === 0) {
-    info('No journal entries found in remotes', 'journal');
-    return;
+    debug('No journal entries found in remotes');
+    return null;
   }
 
-  info(`Found journal entries for ${entriesByDate.size} dates`, 'journal');
+  debug(`Found journal entries for ${entriesByDate.size} dates`);
 
   for (const [dateFile, sources] of [...entriesByDate].sort()) {
     const mergedFile = resolve(mergedJournal, dateFile);
 
     if (sources.length === 1) {
-      info(`  ${dateFile}: single source (${sources[0].hostname}) — copying`, 'journal');
+      debug(`  ${dateFile}: single source (${sources[0].hostname}) — copying`);
       writeFileSync(mergedFile, readFileSync(sources[0].path, 'utf-8'));
     } else {
       const hostnames = sources.map((s) => s.hostname).join(', ');
-      info(`  ${dateFile}: ${sources.length} sources (${hostnames}) — combining`, 'journal');
+      debug(`  ${dateFile}: ${sources.length} sources (${hostnames}) — combining`);
       const parts = sources.map((s) => {
         const content = readFileSync(s.path, 'utf-8').trimEnd();
         return `<!-- from ${s.hostname} -->\n${content}`;
@@ -52,5 +52,5 @@ export function collectJournalEntries(): void {
     }
   }
 
-  success(`Collected journal entries for ${entriesByDate.size} dates`, 'journal');
+  return `${entriesByDate.size} journal entries`;
 }

@@ -7,7 +7,7 @@ import {
   loadMcpExclude,
   type McpServer,
 } from '../config.js';
-import { info, success, warn } from '../log.js';
+import { debug, warn } from '../log.js';
 
 interface RemoteMcpData {
   host: string;
@@ -29,23 +29,23 @@ function loadRemoteMcpFiles(): RemoteMcpData[] {
         results.push({ host, servers });
       }
     } catch {
-      warn(`  Skipping invalid MCP file from ${host}`, 'mcp-merge');
+      warn(`  Skipping invalid MCP file from ${host}`);
     }
   }
 
   return results;
 }
 
-export function mergeMcpServers(): void {
-  info('Starting MCP server merge...', 'mcp-merge');
+export function mergeMcpServers(): { summary: string | null; warnings: string[] } {
+  debug('Starting MCP server merge...');
 
   const remoteSources = loadRemoteMcpFiles();
   const existingMerged = loadMcpServers();
   const excluded = new Set(loadMcpExclude());
 
   if (remoteSources.length === 0 && Object.keys(existingMerged).length === 0) {
-    info('  No MCP server configs found. Skipping.', 'mcp-merge');
-    return;
+    debug('  No MCP server configs found. Skipping.');
+    return { summary: null, warnings: [] };
   }
 
   // Start with existing merged state
@@ -61,7 +61,7 @@ export function mergeMcpServers(): void {
   }
 
   if (remoteServerNames.size > 0) {
-    info(`  Found ${remoteServerNames.size} MCP server(s) across ${remoteSources.length} host(s)`, 'mcp-merge');
+    debug(`  Found ${remoteServerNames.size} MCP server(s) across ${remoteSources.length} host(s)`);
   }
 
   for (const serverName of remoteServerNames) {
@@ -83,7 +83,7 @@ export function mergeMcpServers(): void {
         } else {
           // Conflict on known server — keep existing merged config
           const hosts = sources.map((s) => s.host).join(', ');
-          warn(`  Server '${serverName}' differs across hosts (${hosts}) — keeping existing config`, 'mcp-merge');
+          warn(`  Server '${serverName}' differs across hosts (${hosts}) — keeping existing config`);
         }
       }
     } else {
@@ -98,17 +98,21 @@ export function mergeMcpServers(): void {
 
   saveMcpServers(merged);
 
+  const warnings: string[] = [];
+
   if (discovered.length > 0) {
-    console.log();
-    warn(`  ${discovered.length} new MCP server(s) discovered on remotes:`, 'mcp-merge');
+    const noun = discovered.length === 1 ? 'server' : 'servers';
+    const lines = [`${discovered.length} new MCP ${noun} discovered on remotes:`];
     for (const d of discovered) {
       const type = d.server.type;
       const detail = type === 'http' ? d.server.url : d.server.command;
-      console.log(`    - ${d.name} (${type}: ${detail}) from ${d.host}`);
+      lines.push(`      ${d.name} (${type}: ${detail}) — from ${d.host}`);
     }
-    console.log();
-    info(`  Run 'devsync mcp review' to import or exclude them.`, 'mcp-merge');
+    lines.push(`    Run 'devsync mcp review' to import or exclude.`);
+    warnings.push(lines.join('\n'));
   }
 
-  success(`  MCP merge complete (${Object.keys(merged).length} servers${discovered.length > 0 ? `, ${discovered.length} pending review` : ''})`, 'mcp-merge');
+  const serverCount = Object.keys(merged).length;
+  if (serverCount === 0 && discovered.length === 0) return { summary: null, warnings };
+  return { summary: `${serverCount} MCP servers`, warnings };
 }

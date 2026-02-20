@@ -1,10 +1,10 @@
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { resolve } from 'path';
 import { REMOTES_DIR, loadPermissions, savePermissions } from '../config.js';
-import { info, success } from '../log.js';
+import { debug } from '../log.js';
 
-export function mergePermissions(): void {
-  info('Starting permissions merge...', 'permissions-merge');
+export function mergePermissions(): string | null {
+  debug('Starting permissions merge...');
 
   const existing = loadPermissions();
   const all = new Set<string>(existing);
@@ -29,10 +29,10 @@ export function mergePermissions(): void {
   }
 
   if (all.size === 0) {
-    info('  No permissions found. Skipping.', 'permissions-merge');
-    return;
+    debug('  No permissions found. Skipping.');
+    return null;
   }
 
   savePermissions([...all]);
-  success(`  Permissions merge complete (${all.size} rules)`, 'permissions-merge');
+  return `${all.size} permissions`;
 }
