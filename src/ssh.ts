@@ -1,5 +1,7 @@
 import { execFile } from 'child_process';
-import { homedir } from 'os';
+import { mkdtempSync, rmSync } from 'fs';
+import { homedir, tmpdir } from 'os';
+import { resolve } from 'path';
 import type { ResolvedHost } from './config.js';
 
 function expandHome(path: string): string {
@@ -16,7 +18,49 @@ const DEFAULT_TIMEOUT = 30_000;
 const CONNECT_CHECK_TIMEOUT = 5_000;
 const SSH_CONNECT_TIMEOUT = 5;
 
-const SSH_OPTS = ['-o', `ConnectTimeout=${SSH_CONNECT_TIMEOUT}`];
+// --- SSH connection multiplexing ---
+
+let muxDir: string | null = null;
+
+function getMuxDir(): string {
+  if (!muxDir) {
+    muxDir = mkdtempSync(resolve(tmpdir(), 'devsync-ssh-'));
+  }
+  return muxDir;
+}
+
+function muxSocketPath(hostname: string): string {
+  return resolve(getMuxDir(), hostname);
+}
+
+function sshOpts(hostname?: string): string[] {
+  const opts = ['-o', `ConnectTimeout=${SSH_CONNECT_TIMEOUT}`];
+  if (hostname) {
+    const socket = muxSocketPath(hostname);
+    opts.push('-o', `ControlMaster=auto`, '-o', `ControlPath=${socket}`, '-o', `ControlPersist=60`);
+  }
+  return opts;
+}
+
+function sshOptsString(hostname?: string): string {
+  return sshOpts(hostname)
+    .reduce((acc: string[], opt, i, arr) => {
+      if (opt === '-o' && i + 1 < arr.length) {
+        acc.push(`-o ${arr[i + 1]}`);
+      }
+      return acc;
+    }, [])
+    .join(' ');
+}
+
+export function cleanupMux(): void {
+  if (muxDir) {
+    rmSync(muxDir, { recursive: true, force: true });
+    muxDir = null;
+  }
+}
+
+// --- Exec ---
 
 function exec(cmd: string, args: string[], timeout = DEFAULT_TIMEOUT): Promise<RunResult> {
   return new Promise((resolve) => {
@@ -46,7 +90,7 @@ export function hostExec(host: ResolvedHost, cmd: string): Promise<RunResult> {
   if (host.isLocal) {
     return exec('bash', ['-c', cmd]);
   }
-  return exec('ssh', [...SSH_OPTS, host.hostname, cmd]);
+  return exec('ssh', [...sshOpts(host.hostname), host.hostname, cmd]);
 }
 
 // --- Connectivity check ---
@@ -55,7 +99,7 @@ export async function checkConnection(host: ResolvedHost): Promise<boolean> {
   if (host.isLocal) return true;
   const result = await exec(
     'ssh',
-    [...SSH_OPTS, host.hostname, 'echo ok'],
+    [...sshOpts(host.hostname), host.hostname, 'echo ok'],
     CONNECT_CHECK_TIMEOUT,
   );
   return result.ok && result.stdout.trim() === 'ok';
@@ -64,7 +108,10 @@ export async function checkConnection(host: ResolvedHost): Promise<boolean> {
 // --- Rsync ---
 
 export function rsync(src: string, dst: string, flags: string[] = []): Promise<RunResult> {
-  return exec('rsync', ['-av', '-e', `ssh -o ConnectTimeout=${SSH_CONNECT_TIMEOUT}`, ...flags, src, dst]);
+  // Extract hostname from rsync src/dst (format: "hostname:path")
+  const remoteMatch = src.match(/^([^:]+):/) ?? dst.match(/^([^:]+):/);
+  const hostname = remoteMatch?.[1];
+  return exec('rsync', ['-av', '-e', `ssh ${sshOptsString(hostname)}`, ...flags, src, dst]);
 }
 
 export function rsyncMirror(src: string, dst: string): Promise<RunResult> {
