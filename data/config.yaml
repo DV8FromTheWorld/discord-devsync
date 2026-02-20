@@ -1,0 +1,34 @@
+defaults:
+  darwin:
+    paths:
+      claude_md: ~/repos/discord/CLAUDE.md
+      kb: ~/repos/discord-kb
+      skills: ~/.claude/skills
+  linux:
+    paths:
+      claude_md: ~/workspaces/discord/CLAUDE.md
+      kb: ~/workspaces/discord-kb
+      skills: ~/.claude/skills
+layers:
+  core:
+    description: Base config synced to all hosts
+    skills: all
+    mcp: all
+    dotfiles: true
+    secrets: true
+hosts:
+  local:
+    hostname: localhost
+    platform: darwin
+    layers:
+      - core
+  claude-code-alpha:
+    hostname: claude-code-alpha.coder
+    platform: linux
+    layers:
+      - core
+  claude-code-beta:
+    hostname: claude-code-beta.coder
+    platform: linux
+    layers:
+      - core
