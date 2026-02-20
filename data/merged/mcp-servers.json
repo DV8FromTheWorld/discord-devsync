@@ -1,11 +1,4 @@
 {
-  "buildkite-read-only-toolsets": {
-    "type": "http",
-    "url": "https://mcp.buildkite.com/mcp/readonly",
-    "headers": {
-      "X-Buildkite-Toolsets": "user,pipelines,builds"
-    }
-  },
   "buildkite": {
     "type": "http",
     "url": "https://mcp.buildkite.com/mcp"
