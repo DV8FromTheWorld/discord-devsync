@@ -62,11 +62,12 @@ export async function mcpReview(): Promise<void> {
 
   for (const d of discovered) {
     const type = d.server.type;
-    const detail = type === 'http' ? d.server.url : `${d.server.command} ${(d.server.args ?? []).join(' ')}`;
+    const detail =
+      type === 'http' || type === 'sse' ? d.server.url : `${d.server.command} ${(d.server.args ?? []).join(' ')}`;
 
     console.log(`  ${d.name}`);
     console.log(`    type: ${type}`);
-    console.log(`    ${type === 'http' ? 'url' : 'command'}: ${detail}`);
+    console.log(`    ${type === 'http' || type === 'sse' ? 'url' : 'command'}: ${detail}`);
     console.log(`    found on: ${d.host}`);
 
     const action = await select<'import' | 'exclude' | 'skip'>({
