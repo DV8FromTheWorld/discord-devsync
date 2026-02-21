@@ -1,5 +1,8 @@
-import { loadPermissions, savePermissions } from './config.js';
+import { loadPermissions, savePermissions, type ResolvedHost } from './config.js';
 import { success, error } from './log.js';
+import { reconcilePermissions } from './env/permissions.js';
+import { checkConnection } from './ssh.js';
+import { runParallel, type HostResult } from './sync/parallel.js';
 
 export function permissionsList(): void {
   const permissions = loadPermissions();
@@ -26,6 +29,30 @@ export function permissionsAdd(rule: string): void {
   permissions.push(rule);
   savePermissions(permissions);
   success(`Added permission '${rule}'`);
+}
+
+export async function permissionsPush(hosts: ResolvedHost[]): Promise<void> {
+  await runParallel('\nPermissions push', hosts, async (host): Promise<HostResult> => {
+    const result: HostResult = { host: host.name, succeeded: [], errors: [], unreachable: false };
+
+    if (!host.isLocal) {
+      const reachable = await checkConnection(host);
+      if (!reachable) {
+        result.unreachable = true;
+        result.errors.push('host unreachable');
+        return result;
+      }
+    }
+
+    try {
+      const didPush = await reconcilePermissions(host);
+      if (didPush) result.succeeded.push('permissions');
+    } catch {
+      result.errors.push('permissions failed');
+    }
+
+    return result;
+  });
 }
 
 export function permissionsRemove(rule: string): void {
