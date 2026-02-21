@@ -15,7 +15,7 @@ You are performing a "dream" consolidation of a shared knowledge base and skills
 Read the following directories and analyze their contents:
 - data/merged/discord-kb/ (knowledge base files — skip journal/ and curiosity/ subdirectories)
 - data/merged/.claude/skills/ (Claude skills)
-- data/merged/discord-kb/journal/ (recent agent journal entries)
+- data/merged/discord-kb/journal/{hostname}/ (recent agent journal entries, organized per host)
 
 Based on your analysis, perform the following maintenance operations:
 
