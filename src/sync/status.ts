@@ -51,6 +51,14 @@ export function status(): void {
         console.log(`  - ${host} skills: missing`);
       }
 
+      const agentsDir = resolve(hostDir, '.claude', 'agents');
+      if (existsSync(agentsDir)) {
+        const agents = readdirSync(agentsDir).filter((f) => f.endsWith('.md'));
+        console.log(`  + ${host} agents: ${agents.length} agents`);
+      } else {
+        console.log(`  - ${host} agents: missing`);
+      }
+
       const mcpFile = resolve(hostDir, 'mcp-servers.json');
       if (existsSync(mcpFile)) {
         try {
@@ -103,6 +111,14 @@ export function status(): void {
     console.log(`  + merged/skills: ${skills.length} skills`);
   } else {
     console.log('  - No merged skills directory');
+  }
+
+  const agentsMerged = resolve(MERGED_DIR, '.claude', 'agents');
+  if (existsSync(agentsMerged)) {
+    const agents = readdirSync(agentsMerged).filter((f) => f.endsWith('.md'));
+    console.log(`  + merged/agents: ${agents.length} agents`);
+  } else {
+    console.log('  - No merged agents directory');
   }
 
   if (existsSync(MCP_SERVERS_PATH)) {

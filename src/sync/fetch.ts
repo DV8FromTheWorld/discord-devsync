@@ -87,15 +87,20 @@ async function fetchHost(host: ResolvedHost): Promise<HostResult> {
   mkdirSync(kbDir, { recursive: true });
   const skillsDir = resolve(remoteDir, '.claude', 'skills');
   mkdirSync(skillsDir, { recursive: true });
+  const agentsDir = resolve(remoteDir, '.claude', 'agents');
+  mkdirSync(agentsDir, { recursive: true });
 
   // Run all fetch operations in parallel — they're independent
-  const [claudeT, kbT, skillsT, mcpT, permT] = await Promise.all([
+  const [claudeT, kbT, skillsT, agentsT, mcpT, permT] = await Promise.all([
     timed('claude.md', () =>
       rsync(remotePath(host, host.paths.claude_md), resolve(remoteDir, 'CLAUDE.md')),
     ),
     timed('kb', () => rsyncMirror(remotePath(host, host.paths.kb + '/'), kbDir + '/')),
     timed('skills', () =>
       rsyncMirror(remotePath(host, host.paths.skills + '/'), skillsDir + '/'),
+    ),
+    timed('agents', () =>
+      rsyncMirror(remotePath(host, '~/.claude/agents/'), agentsDir + '/'),
     ),
     timed('mcp', () => fetchMcpServers(host, remoteDir)),
     timed('perms', () => fetchPermissions(host, remoteDir)),
@@ -105,6 +110,7 @@ async function fetchHost(host: ResolvedHost): Promise<HostResult> {
     `claude.md ${claudeT.ms}ms`,
     `kb ${kbT.ms}ms`,
     `skills ${skillsT.ms}ms`,
+    `agents ${agentsT.ms}ms`,
     `mcp ${mcpT.ms}ms`,
     `perms ${permT.ms}ms`,
   );
@@ -117,6 +123,9 @@ async function fetchHost(host: ResolvedHost): Promise<HostResult> {
 
   if (skillsT.result.ok) result.succeeded.push('skills');
   else result.errors.push(`skills not found (${host.paths.skills})`);
+
+  if (agentsT.result.ok) result.succeeded.push('agents');
+  else result.errors.push('agents not found (~/.claude/agents)');
 
   result.succeeded.push(mcpT.result ? 'MCP' : 'MCP (none)');
   result.succeeded.push(permT.result ? 'permissions' : 'permissions (none)');

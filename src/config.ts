@@ -28,6 +28,7 @@ export interface Paths {
 export interface Layer {
   description?: string;
   skills?: string[] | 'all';
+  agents?: string[] | 'all';
   mcp?: string[] | 'all';
   dotfiles?: boolean;
   secrets?: boolean;
@@ -164,6 +165,7 @@ export interface ResolvedHost {
   platform: Platform;
   paths: Paths;
   skills: Set<string> | 'all';
+  agents: Set<string> | 'all';
   mcp: Set<string> | 'all';
   dotfiles: boolean;
   secrets: boolean;
@@ -177,6 +179,7 @@ export function resolveHost(config: Config, hostName: string): ResolvedHost {
   }
 
   let skills: Set<string> | 'all' = new Set();
+  let agents: Set<string> | 'all' = new Set();
   let mcp: Set<string> | 'all' = new Set();
   let dotfiles = false;
   let secrets = false;
@@ -191,6 +194,12 @@ export function resolveHost(config: Config, hostName: string): ResolvedHost {
       skills = 'all';
     } else if (skills !== 'all' && layer.skills) {
       for (const s of layer.skills) skills.add(s);
+    }
+
+    if (layer.agents === 'all') {
+      agents = 'all';
+    } else if (agents !== 'all' && layer.agents) {
+      for (const a of layer.agents) agents.add(a);
     }
 
     if (layer.mcp === 'all') {
@@ -209,6 +218,7 @@ export function resolveHost(config: Config, hostName: string): ResolvedHost {
     platform: host.platform,
     paths: getHostPaths(config, host),
     skills,
+    agents,
     mcp,
     dotfiles,
     secrets,

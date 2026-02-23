@@ -14,6 +14,11 @@ function countSkills(dir: string): number {
   return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).length;
 }
 
+function countAgents(dir: string): number {
+  if (!existsSync(dir)) return 0;
+  return readdirSync(dir).filter((f) => f.endsWith('.md')).length;
+}
+
 function countMdFiles(dir: string): number {
   if (!existsSync(dir)) return 0;
   let count = 0;
@@ -117,6 +122,26 @@ export async function runImport(paths?: Paths): Promise<void> {
         cpSync(skillsPath, mergedSkills, { recursive: true });
         success(`  Imported skills (${skillCount})`);
       }
+    }
+  }
+
+  // Agents import — detect ~/.claude/agents/*.md
+  const localAgentsDir = resolve(homedir(), '.claude', 'agents');
+  const agentCount = countAgents(localAgentsDir);
+  if (agentCount > 0) {
+    info(`  Agents: ${agentCount} agent(s) at ${localAgentsDir}`);
+    const doImportAgents = await confirm({
+      message: 'Import agent definitions into devsync?',
+      default: true,
+    });
+
+    if (doImportAgents) {
+      const mergedAgents = resolve(MERGED_DIR, '.claude', 'agents');
+      mkdirSync(mergedAgents, { recursive: true });
+      for (const file of readdirSync(localAgentsDir).filter((f) => f.endsWith('.md'))) {
+        copyFileSync(resolve(localAgentsDir, file), resolve(mergedAgents, file));
+      }
+      success(`  Imported agents (${agentCount})`);
     }
   }
 
