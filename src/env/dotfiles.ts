@@ -40,7 +40,7 @@ function assembleDevsyncSh(platform: string): string {
 
   parts.push('');
   parts.push('# secrets');
-  parts.push('[ -f ~/.devsync-env ] && source ~/.devsync-env');
+  parts.push('[ -f ~/.devsync-env ] && { set -a; source ~/.devsync-env; set +a; }');
 
   return parts.join('\n') + '\n';
 }
