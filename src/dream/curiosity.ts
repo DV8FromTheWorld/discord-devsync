@@ -50,7 +50,16 @@ Print a brief summary when done.`;
   try {
     execFileSync(
       'claude',
-      ['--allowedTools', 'Read,Write,Glob,Grep', '--model', 'sonnet', '-p', prompt],
+      [
+        '--allowedTools',
+        'Read,Write,Glob,Grep',
+        '--permission-mode',
+        'dontAsk',
+        '--model',
+        'sonnet',
+        '-p',
+        prompt,
+      ],
       {
         cwd: DATA_DIR,
         stdio: 'inherit',

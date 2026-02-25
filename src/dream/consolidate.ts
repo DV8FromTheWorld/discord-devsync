@@ -39,7 +39,16 @@ When done, print a summary of actions taken.`;
   try {
     execFileSync(
       'claude',
-      ['--allowedTools', 'Read,Write,Edit,Glob,Grep,Bash', '--model', 'sonnet', '-p', prompt],
+      [
+        '--allowedTools',
+        'Read,Write,Edit,Glob,Grep,Bash',
+        '--permission-mode',
+        'dontAsk',
+        '--model',
+        'sonnet',
+        '-p',
+        prompt,
+      ],
       { cwd: DATA_DIR, stdio: 'inherit' },
     );
   } catch {
