@@ -75,9 +75,13 @@ export async function runImport(paths?: Paths): Promise<void> {
   const kbPath = await resolvePath('KB directory', paths.kb);
   const skillsPath = await resolvePath('Skills directory', paths.skills);
 
+  // Agent definitions from ~/.claude/agents/
+  const agentsPath = resolve(homedir(), '.claude', 'agents');
+
   const hasClaude = claudeMdPath && existsSync(claudeMdPath);
   const kbCount = kbPath ? countMdFiles(kbPath) : 0;
   const skillCount = skillsPath ? countSkills(skillsPath) : 0;
+  const agentCount = existsSync(agentsPath) ? countMdFiles(agentsPath) : 0;
 
   // Report what was found
   console.log();
@@ -90,7 +94,9 @@ export async function runImport(paths?: Paths): Promise<void> {
   if (skillCount > 0) info(`  Skills: ${skillCount} skills at ${skillsPath}`);
   else if (skillsPath) warn('  Skills: no skills found');
 
-  if (hasClaude || kbCount > 0 || skillCount > 0) {
+  if (agentCount > 0) info(`  Agents: ${agentCount} agent definitions at ${agentsPath}`);
+
+  if (hasClaude || kbCount > 0 || skillCount > 0 || agentCount > 0) {
     const doImport = await confirm({
       message: 'Import found content into devsync?',
       default: true,
@@ -116,6 +122,13 @@ export async function runImport(paths?: Paths): Promise<void> {
         mkdirSync(mergedSkills, { recursive: true });
         cpSync(skillsPath, mergedSkills, { recursive: true });
         success(`  Imported skills (${skillCount})`);
+      }
+
+      if (agentCount > 0) {
+        const mergedAgents = resolve(MERGED_DIR, '.claude', 'agents');
+        mkdirSync(mergedAgents, { recursive: true });
+        cpSync(agentsPath, mergedAgents, { recursive: true });
+        success(`  Imported agents (${agentCount})`);
       }
     }
   }

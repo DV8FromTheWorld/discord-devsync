@@ -39,10 +39,41 @@ async function pushFilteredSkills(host: ResolvedHost): Promise<string | null> {
   }
 }
 
+async function pushFilteredAgents(host: ResolvedHost): Promise<string | null> {
+  const mergedAgents = resolve(MERGED_DIR, '.claude', 'agents');
+  if (!existsSync(mergedAgents)) return null;
+
+  const allAgents = readdirSync(mergedAgents, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.md'))
+    .map((e) => e.name);
+
+  const hostAgents =
+    host.agents === 'all'
+      ? allAgents
+      : allAgents.filter((a) => (host.agents as Set<string>).has(a));
+
+  if (hostAgents.length === 0) return null;
+
+  const tempDir = mkdtempSync(resolve(tmpdir(), 'devsync-agents-push-'));
+  try {
+    for (const agent of hostAgents) {
+      const src = resolve(mergedAgents, agent);
+      const dst = resolve(tempDir, agent);
+      await rsync(src, dst);
+    }
+
+    const r = await rsyncMirror(tempDir + '/', remotePath(host, '~/.claude/agents/'));
+    if (r.ok) return `agents (${hostAgents.length})`;
+    return null;
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 async function ensureRemoteDirs(host: ResolvedHost): Promise<void> {
   // dirname of claude_md path (e.g. ~/workspace/discord/ from ~/workspace/discord/CLAUDE.md)
   const claudeMdDir = host.paths.claude_md.replace(/\/[^/]+$/, '');
-  const dirs = [claudeMdDir, host.paths.kb, host.paths.skills, '~/.claude'];
+  const dirs = [claudeMdDir, host.paths.kb, host.paths.skills, '~/.claude', '~/.claude/agents'];
   const mkdirCmd = dirs.map((d) => `mkdir -p ${d}`).join(' && ');
   await hostExec(host, mkdirCmd);
 }
@@ -121,6 +152,19 @@ async function pushHost(host: ResolvedHost): Promise<HostResult> {
         else result.errors.push('skills failed');
       } catch {
         result.errors.push('skills failed');
+      }
+    })(),
+  );
+
+  // Filtered agents
+  ops.push(
+    (async () => {
+      try {
+        const { result: label, ms } = await timed('agents', () => pushFilteredAgents(host));
+        timings.push(`agents ${ms}ms`);
+        if (label) result.succeeded.push(label);
+      } catch {
+        result.errors.push('agents failed');
       }
     })(),
   );
