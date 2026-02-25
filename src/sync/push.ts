@@ -125,13 +125,17 @@ async function pushHost(host: ResolvedHost): Promise<HostResult> {
     );
   }
 
-  // KB
+  // KB (exclude journal/ — each host maintains its own journal entries)
   const kbDir = resolve(MERGED_DIR, 'discord-kb');
   if (existsSync(kbDir)) {
     ops.push(
       (async () => {
         const { result: r, ms } = await timed('kb', () =>
-          rsyncMirror(kbDir + '/', remotePath(host, host.paths.kb + '/')),
+          rsync(kbDir + '/', remotePath(host, host.paths.kb + '/'), [
+            '--delete',
+            '--exclude',
+            'journal/',
+          ]),
         );
         timings.push(`kb ${ms}ms`);
         if (r.ok) result.succeeded.push('KB');

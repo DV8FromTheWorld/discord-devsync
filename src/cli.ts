@@ -160,14 +160,14 @@ export async function run(args: string[]): Promise<void> {
         curiosity();
         break;
       case 'cleanup':
-        cleanup();
+        await cleanup(hosts);
         break;
       case 'full':
         await fetch(hosts);
         await merge();
         consolidate();
         curiosity();
-        cleanup();
+        await cleanup(hosts);
         await push(hosts);
         commit();
         break;

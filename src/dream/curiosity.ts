@@ -14,7 +14,7 @@ You are generating "curiosity" items — open questions and investigation prompt
 
 Read the following to identify gaps and opportunities:
 - merged/discord-kb/ (knowledge base)
-- merged/discord-kb/journal/ (recent agent journal entries)
+- merged/discord-kb/journal/ (recent agent journal entries, organized by host: journal/{hostname}/YYYY-MM-DD.md)
 - merged/discord-kb/curiosity/active.md (previous curiosity items, if it exists)
 
 Sources of curiosity:
