@@ -6,6 +6,7 @@ import { mergeClaudeMd } from './merge-claude.js';
 import { mergeKbDirectories } from './merge-kb.js';
 import { mergeSkillsDirectories } from './merge-skills.js';
 import { mergeMcpServers } from './merge-mcp.js';
+import { mergeAgents } from './merge-agents.js';
 import { mergePermissions } from './merge-permissions.js';
 import { collectJournalEntries } from './collect-journal.js';
 
@@ -30,6 +31,9 @@ export async function merge(): Promise<void> {
 
   const skillsResult = await mergeSkillsDirectories();
   if (skillsResult) parts.push(skillsResult);
+
+  const agentsResult = await mergeAgents();
+  if (agentsResult) parts.push(agentsResult);
 
   const mcpResult = mergeMcpServers();
   if (mcpResult.summary) parts.push(mcpResult.summary);

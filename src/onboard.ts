@@ -16,7 +16,7 @@ export async function onboard(host: ResolvedHost): Promise<void> {
   }
 
   const dirSpinner = ora({ text: 'Creating directories', prefixText: '  ' }).start();
-  const dirs = [host.paths.kb, host.paths.skills, '~/.claude'];
+  const dirs = [host.paths.kb, host.paths.skills, '~/.claude', '~/.claude/agents'];
   const mkdirCmd = dirs.map((d) => `mkdir -p ${d}`).join(' && ');
   const mkdirResult = await hostExec(host, mkdirCmd);
   if (!mkdirResult.ok) {
