@@ -28,6 +28,9 @@ export const CONFIG_PATH = resolve(DATA_DIR, 'config.yaml');
 export const MCP_SERVERS_PATH = resolve(MERGED_DIR, 'mcp-servers.json');
 export const MCP_EXCLUDE_PATH = resolve(MERGED_DIR, 'mcp-exclude.json');
 export const PERMISSIONS_PATH = resolve(MERGED_DIR, 'permissions.json');
+export const PLUGINS_ENABLED_PATH = resolve(MERGED_DIR, 'plugins-enabled.json');
+export const PLUGINS_INSTALLED_PATH = resolve(MERGED_DIR, 'installed-plugins.json');
+export const PLUGINS_CACHE_DIR = resolve(MERGED_DIR, '.claude', 'plugins', 'cache');
 
 export type Platform = 'darwin' | 'linux';
 
@@ -169,6 +172,55 @@ export function saveMcpExclude(names: string[]): void {
   mkdirSync(MERGED_DIR, { recursive: true });
   const sorted = [...new Set(names)].sort();
   writeFileSync(MCP_EXCLUDE_PATH, JSON.stringify(sorted, null, 2) + '\n');
+}
+
+export interface PluginInstallEntry {
+  scope: string;
+  installPath: string;
+  version: string;
+  installedAt: string;
+  lastUpdated: string;
+  gitCommitSha: string;
+}
+
+export interface InstalledPluginsFile {
+  version: number;
+  plugins: Record<string, PluginInstallEntry[]>;
+}
+
+export function loadEnabledPlugins(): Record<string, boolean> {
+  if (!existsSync(PLUGINS_ENABLED_PATH)) return {};
+  try {
+    const raw = readFileSync(PLUGINS_ENABLED_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    return parsed as Record<string, boolean>;
+  } catch {
+    return {};
+  }
+}
+
+export function saveEnabledPlugins(plugins: Record<string, boolean>): void {
+  mkdirSync(MERGED_DIR, { recursive: true });
+  const sorted = Object.fromEntries(Object.entries(plugins).sort(([a], [b]) => a.localeCompare(b)));
+  writeFileSync(PLUGINS_ENABLED_PATH, JSON.stringify(sorted, null, 2) + '\n');
+}
+
+export function loadInstalledPlugins(): InstalledPluginsFile {
+  if (!existsSync(PLUGINS_INSTALLED_PATH)) return { version: 1, plugins: {} };
+  try {
+    const raw = readFileSync(PLUGINS_INSTALLED_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return { version: 1, plugins: {} };
+    return parsed as InstalledPluginsFile;
+  } catch {
+    return { version: 1, plugins: {} };
+  }
+}
+
+export function saveInstalledPlugins(data: InstalledPluginsFile): void {
+  mkdirSync(MERGED_DIR, { recursive: true });
+  writeFileSync(PLUGINS_INSTALLED_PATH, JSON.stringify(data, null, 2) + '\n');
 }
 
 export function getHostPaths(config: Config, host: HostConfig): Paths {

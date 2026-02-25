@@ -8,6 +8,7 @@ import { pushDotfiles } from '../env/dotfiles.js';
 import { pushSecrets } from '../env/secrets.js';
 import { reconcileMcp } from '../env/mcp.js';
 import { reconcilePermissions } from '../env/permissions.js';
+import { reconcilePlugins } from '../env/plugins.js';
 import { type HostResult, timed, runParallel } from './parallel.js';
 
 async function pushFilteredSkills(host: ResolvedHost): Promise<string | null> {
@@ -214,15 +215,28 @@ async function pushHost(host: ResolvedHost): Promise<HostResult> {
     );
   }
 
-  // Permissions
+  // Permissions + enabled plugins (via settings.json)
   ops.push(
     (async () => {
       try {
-        const { result: didPush, ms } = await timed('perms', () => reconcilePermissions(host));
-        timings.push(`perms ${ms}ms`);
-        if (didPush) result.succeeded.push('permissions');
+        const { result: didPush, ms } = await timed('settings', () => reconcilePermissions(host));
+        timings.push(`settings ${ms}ms`);
+        if (didPush) result.succeeded.push('settings');
       } catch {
-        result.errors.push('permissions failed');
+        result.errors.push('settings failed');
+      }
+    })(),
+  );
+
+  // Plugin cache + installed metadata
+  ops.push(
+    (async () => {
+      try {
+        const { result: didPush, ms } = await timed('plugins', () => reconcilePlugins(host));
+        timings.push(`plugins ${ms}ms`);
+        if (didPush) result.succeeded.push('plugins');
+      } catch {
+        result.errors.push('plugins failed');
       }
     })(),
   );

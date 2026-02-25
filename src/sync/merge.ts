@@ -7,6 +7,7 @@ import { mergeKbDirectories } from './merge-kb.js';
 import { mergeSkillsDirectories } from './merge-skills.js';
 import { mergeMcpServers } from './merge-mcp.js';
 import { mergeAgents } from './merge-agents.js';
+import { mergePlugins } from './merge-plugins.js';
 import { mergePermissions } from './merge-permissions.js';
 import { collectJournalEntries } from './collect-journal.js';
 
@@ -37,6 +38,9 @@ export async function merge(): Promise<void> {
 
   const mcpResult = mergeMcpServers();
   if (mcpResult.summary) parts.push(mcpResult.summary);
+
+  const pluginsResult = mergePlugins();
+  if (pluginsResult) parts.push(pluginsResult);
 
   const permResult = mergePermissions();
   if (permResult) parts.push(permResult);
