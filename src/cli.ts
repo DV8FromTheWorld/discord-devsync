@@ -16,7 +16,12 @@ import { runImport } from './import.js';
 import { mcpAdd } from './mcp-add.js';
 import { mcpRemove } from './mcp-remove.js';
 import { mcpReview } from './mcp-review.js';
-import { permissionsList, permissionsAdd, permissionsRemove } from './permissions.js';
+import {
+  permissionsList,
+  permissionsAdd,
+  permissionsRemove,
+  permissionsPush,
+} from './permissions.js';
 
 const USAGE = `\
 Usage: devsync <command> [subcommand] [options]
@@ -58,6 +63,7 @@ Permissions:
   permissions list       Show synced permission rules
   permissions add <rule> Add a permission rule
   permissions remove <rule> Remove a permission rule
+  permissions push [--host X]  Push permissions to hosts now
 `;
 
 function getHostFilter(args: string[]): string | undefined {
@@ -241,6 +247,11 @@ export async function run(args: string[]): Promise<void> {
         process.exit(1);
       }
       permissionsRemove(rule);
+    } else if (subcommand === 'push') {
+      const config = requireConfig();
+      const hostName = getHostFilter(args);
+      const hosts = hostName ? [resolveHost(config, hostName)] : resolveAllHosts(config);
+      await permissionsPush(hosts);
     } else {
       error(`Unknown permissions subcommand: ${subcommand}`);
       console.log(USAGE);
