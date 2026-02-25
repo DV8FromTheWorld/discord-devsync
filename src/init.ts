@@ -102,7 +102,7 @@ async function setupDataDir(): Promise<string> {
     mkdirSync(DEFAULT_DATA_DIR, { recursive: true });
 
     try {
-      execFileSync('git', ['init'], { cwd: DEFAULT_DATA_DIR, stdio: 'pipe' });
+      execFileSync('git', ['init', '-b', 'main'], { cwd: DEFAULT_DATA_DIR, stdio: 'pipe' });
     } catch (e) {
       error(`Failed to initialize git repository in ${DEFAULT_DATA_DIR}.`);
       error((e as Error).message);
