@@ -1,11 +1,10 @@
 import { existsSync, statSync, mkdirSync, readdirSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { resolve, relative } from 'path';
-import { cpSync, mkdtempSync, rmSync } from 'fs';
-import { tmpdir } from 'os';
 import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
 import { debug, warn } from '../log.js';
 import { rsyncMirror } from '../ssh.js';
+import { dirsAreIdentical, generateDirDiffs } from './content-compare.js';
 
 function findAllSkills(): Set<string> {
   const skills = new Set<string>();
@@ -39,38 +38,42 @@ function newestMtime(dir: string): number {
   return newest;
 }
 
-function mergeSkillWithClaude(skillName: string, newerRemotes: string[]): boolean {
+function mergeSkillWithClaude(skillName: string, mergedSkill: string, newerRemotes: string[]): boolean {
   debug(`  Multiple hosts updated skill '${skillName}' — using Claude to merge`);
 
-  const tempDir = mkdtempSync(resolve(tmpdir(), 'devsync-skill-'));
+  const { basePath, baseLabel, diffs } = generateDirDiffs(
+    existsSync(mergedSkill) ? mergedSkill : null,
+    newerRemotes,
+    REMOTES_DIR,
+  );
+
+  const diffSections = diffs.map(({ host, diff }) =>
+    `--- Host: ${host} ---\n${diff || '(no changes from base)'}`,
+  ).join('\n\n');
+
+  const prompt = [
+    `Merge Claude skill directories using diff analysis:`,
+    '',
+    `Skill: ${skillName}`,
+    `Base version: ${basePath} (from ${baseLabel} — read this directory first)`,
+    '',
+    `Changes from each host (unified diff format):`,
+    '',
+    diffSections,
+    '',
+    `Requirements:`,
+    `- Apply changes from all hosts to the base version`,
+    `- Combine unique functionality from each host's version`,
+    `- Keep the most comprehensive and up-to-date content`,
+    `- Preserve all unique files from each version`,
+    `- Add comments noting source host for conflicting sections`,
+    `- Maintain proper skill structure and format`,
+    `- Write merged result to merged/.claude/skills/${skillName}/`,
+    '',
+    'Print brief summary when done.',
+  ].join('\n');
+
   try {
-    const dirDescriptions: string[] = [];
-    for (const remotePath of newerRemotes) {
-      const host = relative(REMOTES_DIR, remotePath).split('/')[0];
-      const dest = resolve(tempDir, `${host}_${skillName}`);
-      cpSync(remotePath, dest, { recursive: true });
-      dirDescriptions.push(`- ${dest}/ (from ${host})`);
-    }
-
-    const prompt = [
-      `Merge these Claude skill directories intelligently:`,
-      '',
-      `Skill: ${skillName}`,
-      '',
-      `Directories to merge:`,
-      ...dirDescriptions,
-      '',
-      `Requirements:`,
-      `- Combine unique functionality from each host's version`,
-      `- Keep the most comprehensive and up-to-date content`,
-      `- Preserve all unique files from each version`,
-      `- Add comments noting source host for conflicting sections`,
-      `- Maintain proper skill structure and format`,
-      `- Write merged result to merged/.claude/skills/${skillName}/`,
-      '',
-      'Print brief summary when done.',
-    ].join('\n');
-
     execFileSync(
       'claude',
       ['--allowedTools', 'Read,Write,Glob', '--model', 'sonnet', '-p', prompt],
@@ -82,8 +85,6 @@ function mergeSkillWithClaude(skillName: string, newerRemotes: string[]): boolea
     return true;
   } catch {
     return false;
-  } finally {
-    rmSync(tempDir, { recursive: true, force: true });
   }
 }
 
@@ -120,7 +121,12 @@ export async function mergeSkillsDirectories(): Promise<string | null> {
       mergedCount++;
     } else {
       mkdirSync(mergedSkill, { recursive: true });
-      if (mergeSkillWithClaude(skillName, newerRemotes)) {
+      // If all remotes are identical, skip Claude merge
+      if (dirsAreIdentical(newerRemotes)) {
+        debug(`  ${skillName}: ${newerRemotes.length} hosts updated, content identical — copying`);
+        await rsyncMirror(newerRemotes[0] + '/', mergedSkill + '/');
+        mergedCount++;
+      } else if (mergeSkillWithClaude(skillName, mergedSkill, newerRemotes)) {
         debug(`  Merged skill '${skillName}' from ${newerRemotes.length} sources`);
         mergedCount++;
       } else {

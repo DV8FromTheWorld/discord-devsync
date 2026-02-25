@@ -1,8 +1,9 @@
-import { existsSync, statSync, mkdirSync, readdirSync, readFileSync } from 'fs';
+import { existsSync, statSync, mkdirSync, readdirSync, copyFileSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { resolve } from 'path';
 import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
 import { debug, warn, error } from '../log.js';
+import { filesAreIdentical, generateFileDiffs } from './content-compare.js';
 
 function findRemoteClaudes(): string[] {
   if (!existsSync(REMOTES_DIR)) return [];
@@ -36,9 +37,33 @@ export function mergeClaudeMd(): string | null {
     }
   }
 
+  // If all remotes have identical content, skip Claude merge
+  if (filesAreIdentical(remoteFiles)) {
+    debug('All remote CLAUDE.md files are identical — copying without merge.');
+    copyFileSync(remoteFiles[0], mergedFile);
+    return 'CLAUDE.md';
+  }
+
+  const { basePath, baseLabel, diffs } = generateFileDiffs(
+    existsSync(mergedFile) ? mergedFile : null,
+    remoteFiles,
+    REMOTES_DIR,
+  );
+
+  const diffSections = diffs.map(({ host, diff }) =>
+    `--- Host: ${host} ---\n${diff || '(no changes from base)'}`,
+  ).join('\n\n');
+
   const prompt = [
-    'Read all CLAUDE.md files in remotes/ and merge them intelligently:',
+    'Merge CLAUDE.md files using diff analysis:',
     '',
+    `Base version: ${basePath} (from ${baseLabel} — read this file first)`,
+    '',
+    'Changes from each host (unified diff format):',
+    '',
+    diffSections,
+    '',
+    '- Apply changes from all hosts to the base version',
     '- Remove duplicates, keep most comprehensive versions',
     '- Preserve unique insights from each host',
     '- Maintain proper markdown structure',

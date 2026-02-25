@@ -1,10 +1,11 @@
 import { existsSync, statSync, mkdirSync, readdirSync, copyFileSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { resolve, relative } from 'path';
-import { cpSync, mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
 import { debug, warn } from '../log.js';
+import { filesAreIdentical, generateFileDiffs } from './content-compare.js';
 
 const EXCLUDED_PREFIXES = ['journal/', 'curiosity/'];
 
@@ -45,37 +46,40 @@ function findAllKbFiles(): Set<string> {
   return allFiles;
 }
 
-function mergeKbFileWithClaude(kbFile: string, newerRemotes: string[]): boolean {
+function mergeKbFileWithClaude(kbFile: string, mergedFile: string, newerRemotes: string[]): boolean {
   debug(`  Multiple hosts updated ${kbFile} — using Claude to merge`);
 
-  const tempDir = mkdtempSync(resolve(tmpdir(), 'devsync-kb-'));
+  const { basePath, baseLabel, diffs } = generateFileDiffs(
+    existsSync(mergedFile) ? mergedFile : null,
+    newerRemotes,
+    REMOTES_DIR,
+  );
+
+  const diffSections = diffs.map(({ host, diff }) =>
+    `--- Host: ${host} ---\n${diff || '(no changes from base)'}`,
+  ).join('\n\n');
+
+  const prompt = [
+    `Merge KB file using diff analysis:`,
+    '',
+    `File: ${kbFile}`,
+    `Base version: ${basePath} (from ${baseLabel} — read this file first)`,
+    '',
+    `Changes from each host (unified diff format):`,
+    '',
+    diffSections,
+    '',
+    `Requirements:`,
+    `- Apply changes from all hosts to the base version`,
+    `- Remove duplicates, keep most comprehensive versions`,
+    `- Add source attribution for new/conflicting sections`,
+    `- Maintain proper markdown structure`,
+    `- Write result to merged/discord-kb/${kbFile}`,
+    '',
+    'Print brief summary when done.',
+  ].join('\n');
+
   try {
-    const fileDescriptions: string[] = [];
-    for (const remotePath of newerRemotes) {
-      const parts = remotePath.split('/');
-      const remoteIdx = parts.indexOf('remotes');
-      const host = parts[remoteIdx + 1];
-      const destName = `${host}_${kbFile.replace(/\//g, '_')}`;
-      copyFileSync(remotePath, resolve(tempDir, destName));
-      fileDescriptions.push(`- ${resolve(tempDir, destName)} (from ${host})`);
-    }
-
-    const prompt = [
-      `Merge these KB files intelligently:`,
-      '',
-      `Files to merge:`,
-      ...fileDescriptions,
-      '',
-      `Requirements:`,
-      `- Combine unique insights from each host`,
-      `- Remove duplicates, keep most comprehensive versions`,
-      `- Add source attribution for new/conflicting sections`,
-      `- Maintain proper markdown structure`,
-      `- Write result to merged/discord-kb/${kbFile}`,
-      '',
-      'Print brief summary when done.',
-    ].join('\n');
-
     execFileSync('claude', ['--allowedTools', 'Read,Write', '--model', 'sonnet', '-p', prompt], {
       cwd: DATA_DIR,
       stdio: 'inherit',
@@ -83,8 +87,6 @@ function mergeKbFileWithClaude(kbFile: string, newerRemotes: string[]): boolean 
     return true;
   } catch {
     return false;
-  } finally {
-    rmSync(tempDir, { recursive: true, force: true });
   }
 }
 
@@ -121,7 +123,12 @@ export function mergeKbDirectories(): string | null {
       mergedCount++;
     } else {
       mkdirSync(resolve(mergedFile, '..'), { recursive: true });
-      if (mergeKbFileWithClaude(kbFile, newerRemotes)) {
+      // If all remotes are identical, skip Claude merge
+      if (filesAreIdentical(newerRemotes)) {
+        debug(`  ${kbFile}: ${newerRemotes.length} hosts updated, content identical — copying`);
+        copyFileSync(newerRemotes[0], mergedFile);
+        mergedCount++;
+      } else if (mergeKbFileWithClaude(kbFile, mergedFile, newerRemotes)) {
         debug(`  Merged ${kbFile} from ${newerRemotes.length} sources`);
         mergedCount++;
       } else {
