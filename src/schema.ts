@@ -54,6 +54,12 @@ const HttpMcpServerSchema = z.object({
   headers: z.record(z.string(), z.string()).optional(),
 });
 
+const SseMcpServerSchema = z.object({
+  type: z.literal('sse'),
+  url: z.string().min(1, 'sse server requires a url'),
+  headers: z.record(z.string(), z.string()).optional(),
+});
+
 const StdioMcpServerSchema = z.object({
   type: z.literal('stdio'),
   command: z.string().min(1, 'stdio server requires a command'),
@@ -61,7 +67,7 @@ const StdioMcpServerSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
 });
 
-const McpServerSchema = z.discriminatedUnion('type', [HttpMcpServerSchema, StdioMcpServerSchema]);
+const McpServerSchema = z.discriminatedUnion('type', [HttpMcpServerSchema, SseMcpServerSchema, StdioMcpServerSchema]);
 
 export const McpServersSchema = z.record(z.string(), McpServerSchema);
 

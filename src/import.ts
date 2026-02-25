@@ -141,7 +141,7 @@ async function importMcpServers(): Promise<void> {
     if (claudeJson.mcpServers && typeof claudeJson.mcpServers === 'object') {
       for (const [name, config] of Object.entries(claudeJson.mcpServers)) {
         const server = config as McpServer;
-        if (server.type === 'http' || server.type === 'stdio') {
+        if (server.type === 'http' || server.type === 'sse' || server.type === 'stdio') {
           found[name] = { server, source: 'user' };
         }
       }
@@ -154,7 +154,7 @@ async function importMcpServers(): Promise<void> {
         const mcpServers = data.mcpServers as Record<string, McpServer> | undefined;
         if (!mcpServers || typeof mcpServers !== 'object') continue;
         for (const [name, server] of Object.entries(mcpServers)) {
-          if (server.type === 'http' || server.type === 'stdio') {
+          if (server.type === 'http' || server.type === 'sse' || server.type === 'stdio') {
             const shortPath = projectPath.replace(homedir(), '~');
             found[name] = { server, source: shortPath };
           }

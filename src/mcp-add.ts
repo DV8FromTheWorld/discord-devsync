@@ -27,20 +27,21 @@ export async function mcpAdd(name?: string): Promise<void> {
     warn(`Server '${name}' already exists. It will be overwritten.`);
   }
 
-  const type = await select<'http' | 'stdio'>({
+  const type = await select<'http' | 'sse' | 'stdio'>({
     message: 'Transport type:',
     choices: [
       { value: 'http', name: 'HTTP (remote server)' },
+      { value: 'sse', name: 'SSE (server-sent events)' },
       { value: 'stdio', name: 'Stdio (local process)' },
     ],
   });
 
   let server: McpServer;
 
-  if (type === 'http') {
+  if (type === 'http' || type === 'sse') {
     const url = await input({ message: 'Server URL:' });
     if (!url.trim()) {
-      error('URL is required for HTTP servers.');
+      error(`URL is required for ${type.toUpperCase()} servers.`);
       return;
     }
 
@@ -50,8 +51,8 @@ export async function mcpAdd(name?: string): Promise<void> {
     });
     const headers = parseKeyValuePairs(headersRaw);
 
-    server = { type: 'http', url };
-    if (Object.keys(headers).length > 0) server.headers = headers;
+    server = { type, url } as McpServer;
+    if (Object.keys(headers).length > 0) (server as McpServer & { headers?: Record<string, string> }).headers = headers;
   } else {
     const command = await input({ message: 'Command:' });
     if (!command.trim()) {
