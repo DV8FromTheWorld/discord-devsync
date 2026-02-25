@@ -5,7 +5,7 @@ import { rsync, rsyncMirror, remotePath, checkConnection, hostExec } from '../ss
 import { debug } from '../log.js';
 import { type HostResult, timed, runParallel } from './parallel.js';
 
-async function fetchPermissions(host: ResolvedHost, remoteDir: string): Promise<boolean> {
+async function fetchSettings(host: ResolvedHost, remoteDir: string): Promise<boolean> {
   const result = await hostExec(host, 'cat ~/.claude/settings.json 2>/dev/null');
   if (!result.ok || !result.stdout.trim()) return false;
 
@@ -16,12 +16,46 @@ async function fetchPermissions(host: ResolvedHost, remoteDir: string): Promise<
     return false;
   }
 
+  let fetched = false;
+
   const permissions = settings.permissions as Record<string, unknown> | undefined;
   const allow = permissions?.allow;
-  if (!Array.isArray(allow) || allow.length === 0) return false;
+  if (Array.isArray(allow) && allow.length > 0) {
+    writeFileSync(resolve(remoteDir, 'permissions.json'), JSON.stringify(allow, null, 2) + '\n');
+    fetched = true;
+  }
 
-  writeFileSync(resolve(remoteDir, 'permissions.json'), JSON.stringify(allow, null, 2) + '\n');
-  return true;
+  const enabledPlugins = settings.enabledPlugins;
+  if (enabledPlugins && typeof enabledPlugins === 'object' && !Array.isArray(enabledPlugins)) {
+    writeFileSync(resolve(remoteDir, 'plugins-enabled.json'), JSON.stringify(enabledPlugins, null, 2) + '\n');
+    fetched = true;
+  }
+
+  return fetched;
+}
+
+async function fetchPlugins(host: ResolvedHost, remoteDir: string): Promise<boolean> {
+  let fetched = false;
+
+  // Fetch installed_plugins.json
+  const installedResult = await hostExec(host, 'cat ~/.claude/plugins/installed_plugins.json 2>/dev/null');
+  if (installedResult.ok && installedResult.stdout.trim()) {
+    try {
+      JSON.parse(installedResult.stdout.trim()); // validate
+      writeFileSync(resolve(remoteDir, 'installed-plugins.json'), installedResult.stdout.trim() + '\n');
+      fetched = true;
+    } catch {
+      // Skip invalid JSON
+    }
+  }
+
+  // Fetch plugin cache via rsync
+  const cacheDir = resolve(remoteDir, '.claude', 'plugins', 'cache');
+  mkdirSync(cacheDir, { recursive: true });
+  const r = await rsyncMirror(remotePath(host, '~/.claude/plugins/cache/'), cacheDir + '/');
+  if (r.ok) fetched = true;
+
+  return fetched;
 }
 
 async function fetchMcpServers(host: ResolvedHost, remoteDir: string): Promise<boolean> {
@@ -91,7 +125,7 @@ async function fetchHost(host: ResolvedHost): Promise<HostResult> {
   mkdirSync(agentsDir, { recursive: true });
 
   // Run all fetch operations in parallel — they're independent
-  const [claudeT, kbT, skillsT, agentsT, mcpT, permT] = await Promise.all([
+  const [claudeT, kbT, skillsT, agentsT, mcpT, permT, pluginsT] = await Promise.all([
     timed('claude.md', () =>
       rsync(remotePath(host, host.paths.claude_md), resolve(remoteDir, 'CLAUDE.md')),
     ),
@@ -103,7 +137,8 @@ async function fetchHost(host: ResolvedHost): Promise<HostResult> {
       rsyncMirror(remotePath(host, '~/.claude/agents/'), agentsDir + '/'),
     ),
     timed('mcp', () => fetchMcpServers(host, remoteDir)),
-    timed('perms', () => fetchPermissions(host, remoteDir)),
+    timed('settings', () => fetchSettings(host, remoteDir)),
+    timed('plugins', () => fetchPlugins(host, remoteDir)),
   ]);
 
   timings.push(
@@ -112,7 +147,8 @@ async function fetchHost(host: ResolvedHost): Promise<HostResult> {
     `skills ${skillsT.ms}ms`,
     `agents ${agentsT.ms}ms`,
     `mcp ${mcpT.ms}ms`,
-    `perms ${permT.ms}ms`,
+    `settings ${permT.ms}ms`,
+    `plugins ${pluginsT.ms}ms`,
   );
 
   if (claudeT.result.ok) result.succeeded.push('CLAUDE.md');
@@ -128,7 +164,8 @@ async function fetchHost(host: ResolvedHost): Promise<HostResult> {
   else result.succeeded.push('agents (none)');
 
   result.succeeded.push(mcpT.result ? 'MCP' : 'MCP (none)');
-  result.succeeded.push(permT.result ? 'permissions' : 'permissions (none)');
+  result.succeeded.push(permT.result ? 'settings' : 'settings (none)');
+  if (pluginsT.result) result.succeeded.push('plugins');
 
   const wall = Math.round(performance.now() - hostStart);
   debug(`${host.name} (${wall}ms) — ${timings.join(', ')}`);
