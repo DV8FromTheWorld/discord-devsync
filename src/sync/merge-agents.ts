@@ -19,7 +19,11 @@ function findAllAgents(): Set<string> {
   return agents;
 }
 
-function mergeAgentWithClaude(fileName: string, mergedFile: string, newerRemotes: string[]): boolean {
+function mergeAgentWithClaude(
+  fileName: string,
+  mergedFile: string,
+  newerRemotes: string[],
+): boolean {
   debug(`  Multiple hosts updated agent '${fileName}' — using Claude to merge`);
 
   const { basePath, baseLabel, diffs } = generateFileDiffs(
@@ -28,9 +32,9 @@ function mergeAgentWithClaude(fileName: string, mergedFile: string, newerRemotes
     REMOTES_DIR,
   );
 
-  const diffSections = diffs.map(({ host, diff }) =>
-    `--- Host: ${host} ---\n${diff || '(no changes from base)'}`,
-  ).join('\n\n');
+  const diffSections = diffs
+    .map(({ host, diff }) => `--- Host: ${host} ---\n${diff || '(no changes from base)'}`)
+    .join('\n\n');
 
   const prompt = [
     `Merge agent definition files intelligently using diff analysis:`,
@@ -55,7 +59,16 @@ function mergeAgentWithClaude(fileName: string, mergedFile: string, newerRemotes
   try {
     execFileSync(
       'claude',
-      ['--allowedTools', 'Read,Write,Glob', '--model', 'sonnet', '-p', prompt],
+      [
+        '--allowedTools',
+        'Read,Write,Glob',
+        '--permission-mode',
+        'dontAsk',
+        '--model',
+        'sonnet',
+        '-p',
+        prompt,
+      ],
       {
         cwd: DATA_DIR,
         stdio: 'inherit',

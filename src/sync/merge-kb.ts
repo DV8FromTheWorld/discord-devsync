@@ -46,7 +46,11 @@ function findAllKbFiles(): Set<string> {
   return allFiles;
 }
 
-function mergeKbFileWithClaude(kbFile: string, mergedFile: string, newerRemotes: string[]): boolean {
+function mergeKbFileWithClaude(
+  kbFile: string,
+  mergedFile: string,
+  newerRemotes: string[],
+): boolean {
   debug(`  Multiple hosts updated ${kbFile} — using Claude to merge`);
 
   const { basePath, baseLabel, diffs } = generateFileDiffs(
@@ -55,9 +59,9 @@ function mergeKbFileWithClaude(kbFile: string, mergedFile: string, newerRemotes:
     REMOTES_DIR,
   );
 
-  const diffSections = diffs.map(({ host, diff }) =>
-    `--- Host: ${host} ---\n${diff || '(no changes from base)'}`,
-  ).join('\n\n');
+  const diffSections = diffs
+    .map(({ host, diff }) => `--- Host: ${host} ---\n${diff || '(no changes from base)'}`)
+    .join('\n\n');
 
   const prompt = [
     `Merge KB file using diff analysis:`,
@@ -80,10 +84,23 @@ function mergeKbFileWithClaude(kbFile: string, mergedFile: string, newerRemotes:
   ].join('\n');
 
   try {
-    execFileSync('claude', ['--allowedTools', 'Read,Write', '--model', 'sonnet', '-p', prompt], {
-      cwd: DATA_DIR,
-      stdio: 'inherit',
-    });
+    execFileSync(
+      'claude',
+      [
+        '--allowedTools',
+        'Read,Write',
+        '--permission-mode',
+        'dontAsk',
+        '--model',
+        'sonnet',
+        '-p',
+        prompt,
+      ],
+      {
+        cwd: DATA_DIR,
+        stdio: 'inherit',
+      },
+    );
     return true;
   } catch {
     return false;

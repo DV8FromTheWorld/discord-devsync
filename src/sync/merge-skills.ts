@@ -38,7 +38,11 @@ function newestMtime(dir: string): number {
   return newest;
 }
 
-function mergeSkillWithClaude(skillName: string, mergedSkill: string, newerRemotes: string[]): boolean {
+function mergeSkillWithClaude(
+  skillName: string,
+  mergedSkill: string,
+  newerRemotes: string[],
+): boolean {
   debug(`  Multiple hosts updated skill '${skillName}' — using Claude to merge`);
 
   const { basePath, baseLabel, diffs } = generateDirDiffs(
@@ -47,9 +51,9 @@ function mergeSkillWithClaude(skillName: string, mergedSkill: string, newerRemot
     REMOTES_DIR,
   );
 
-  const diffSections = diffs.map(({ host, diff }) =>
-    `--- Host: ${host} ---\n${diff || '(no changes from base)'}`,
-  ).join('\n\n');
+  const diffSections = diffs
+    .map(({ host, diff }) => `--- Host: ${host} ---\n${diff || '(no changes from base)'}`)
+    .join('\n\n');
 
   const prompt = [
     `Merge Claude skill directories using diff analysis:`,
@@ -76,7 +80,16 @@ function mergeSkillWithClaude(skillName: string, mergedSkill: string, newerRemot
   try {
     execFileSync(
       'claude',
-      ['--allowedTools', 'Read,Write,Glob', '--model', 'sonnet', '-p', prompt],
+      [
+        '--allowedTools',
+        'Read,Write,Glob',
+        '--permission-mode',
+        'dontAsk',
+        '--model',
+        'sonnet',
+        '-p',
+        prompt,
+      ],
       {
         cwd: DATA_DIR,
         stdio: 'inherit',

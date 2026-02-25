@@ -50,9 +50,9 @@ export function mergeClaudeMd(): string | null {
     REMOTES_DIR,
   );
 
-  const diffSections = diffs.map(({ host, diff }) =>
-    `--- Host: ${host} ---\n${diff || '(no changes from base)'}`,
-  ).join('\n\n');
+  const diffSections = diffs
+    .map(({ host, diff }) => `--- Host: ${host} ---\n${diff || '(no changes from base)'}`)
+    .join('\n\n');
 
   const prompt = [
     'Merge CLAUDE.md files using diff analysis:',
@@ -76,7 +76,16 @@ export function mergeClaudeMd(): string | null {
   try {
     execFileSync(
       'claude',
-      ['--allowedTools', 'Read,Write,Glob', '--model', 'sonnet', '-p', prompt],
+      [
+        '--allowedTools',
+        'Read,Write,Glob',
+        '--permission-mode',
+        'dontAsk',
+        '--model',
+        'sonnet',
+        '-p',
+        prompt,
+      ],
       {
         cwd: DATA_DIR,
         stdio: 'inherit',
