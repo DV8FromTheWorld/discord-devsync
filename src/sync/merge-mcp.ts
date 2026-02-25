@@ -105,7 +105,7 @@ export function mergeMcpServers(): { summary: string | null; warnings: string[] 
     const lines = [`${discovered.length} new MCP ${noun} discovered on remotes:`];
     for (const d of discovered) {
       const type = d.server.type;
-      const detail = type === 'http' ? d.server.url : d.server.command;
+      const detail = type === 'http' || type === 'sse' ? d.server.url : d.server.command;
       lines.push(`      ${d.name} (${type}: ${detail}) — from ${d.host}`);
     }
     lines.push(`    Run 'devsync mcp review' to import or exclude.`);

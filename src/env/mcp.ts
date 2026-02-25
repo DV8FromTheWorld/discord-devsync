@@ -11,8 +11,8 @@ function resolveServerSecrets(
   server: McpServer,
   secrets: Record<string, string>,
 ): McpServer {
-  if (server.type === 'http') {
-    const resolved: McpServer = { type: 'http', url: resolveEnvVars(server.url, secrets) };
+  if (server.type === 'http' || server.type === 'sse') {
+    const resolved: typeof server = { type: server.type, url: resolveEnvVars(server.url, secrets) };
     if (server.headers) {
       resolved.headers = {};
       for (const [k, v] of Object.entries(server.headers)) {

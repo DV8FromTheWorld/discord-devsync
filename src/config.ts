@@ -58,6 +58,12 @@ export interface HttpMcpServer {
   headers?: Record<string, string>;
 }
 
+export interface SseMcpServer {
+  type: 'sse';
+  url: string;
+  headers?: Record<string, string>;
+}
+
 export interface StdioMcpServer {
   type: 'stdio';
   command: string;
@@ -65,7 +71,7 @@ export interface StdioMcpServer {
   env?: Record<string, string>;
 }
 
-export type McpServer = HttpMcpServer | StdioMcpServer;
+export type McpServer = HttpMcpServer | SseMcpServer | StdioMcpServer;
 
 export interface PlatformDefaults {
   paths: Paths;

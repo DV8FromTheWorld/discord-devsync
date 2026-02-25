@@ -61,7 +61,7 @@ export function listMcp(): void {
   for (const [name, server] of servers) {
     console.log(`  ${name}`);
     console.log(`    type: ${server.type}`);
-    if (server.type === 'http') {
+    if (server.type === 'http' || server.type === 'sse') {
       console.log(`    url:  ${server.url}`);
       if (server.headers) {
         for (const [k, v] of Object.entries(server.headers)) {
