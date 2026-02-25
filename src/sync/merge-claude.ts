@@ -1,7 +1,7 @@
 import { existsSync, statSync, mkdirSync, readdirSync, readFileSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { resolve } from 'path';
-import { REMOTES_DIR, MERGED_DIR, PROJECT_ROOT } from '../config.js';
+import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
 import { debug, warn, error } from '../log.js';
 
 function findRemoteClaudes(): string[] {
@@ -37,12 +37,12 @@ export function mergeClaudeMd(): string | null {
   }
 
   const prompt = [
-    'Read all CLAUDE.md files in data/remotes/ and merge them intelligently:',
+    'Read all CLAUDE.md files in remotes/ and merge them intelligently:',
     '',
     '- Remove duplicates, keep most comprehensive versions',
     '- Preserve unique insights from each host',
     '- Maintain proper markdown structure',
-    '- Write result to data/merged/CLAUDE.md',
+    '- Write result to merged/CLAUDE.md',
     '',
     'Print brief summary when done.',
   ].join('\n');
@@ -53,7 +53,7 @@ export function mergeClaudeMd(): string | null {
       'claude',
       ['--allowedTools', 'Read,Write,Glob', '--model', 'sonnet', '-p', prompt],
       {
-        cwd: PROJECT_ROOT,
+        cwd: DATA_DIR,
         stdio: 'inherit',
       },
     );

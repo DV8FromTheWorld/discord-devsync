@@ -3,7 +3,7 @@ import { execFileSync } from 'child_process';
 import { resolve, relative } from 'path';
 import { cpSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
-import { REMOTES_DIR, MERGED_DIR, PROJECT_ROOT } from '../config.js';
+import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
 import { debug, warn } from '../log.js';
 
 const EXCLUDED_PREFIXES = ['journal/', 'curiosity/'];
@@ -71,13 +71,13 @@ function mergeKbFileWithClaude(kbFile: string, newerRemotes: string[]): boolean 
       `- Remove duplicates, keep most comprehensive versions`,
       `- Add source attribution for new/conflicting sections`,
       `- Maintain proper markdown structure`,
-      `- Write result to data/merged/discord-kb/${kbFile}`,
+      `- Write result to merged/discord-kb/${kbFile}`,
       '',
       'Print brief summary when done.',
     ].join('\n');
 
     execFileSync('claude', ['--allowedTools', 'Read,Write', '--model', 'sonnet', '-p', prompt], {
-      cwd: PROJECT_ROOT,
+      cwd: DATA_DIR,
       stdio: 'inherit',
     });
     return true;

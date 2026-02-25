@@ -3,7 +3,7 @@ import { execFileSync } from 'child_process';
 import { resolve, relative } from 'path';
 import { cpSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
-import { REMOTES_DIR, MERGED_DIR, PROJECT_ROOT } from '../config.js';
+import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
 import { debug, warn } from '../log.js';
 import { rsyncMirror } from '../ssh.js';
 
@@ -66,7 +66,7 @@ function mergeSkillWithClaude(skillName: string, newerRemotes: string[]): boolea
       `- Preserve all unique files from each version`,
       `- Add comments noting source host for conflicting sections`,
       `- Maintain proper skill structure and format`,
-      `- Write merged result to data/merged/.claude/skills/${skillName}/`,
+      `- Write merged result to merged/.claude/skills/${skillName}/`,
       '',
       'Print brief summary when done.',
     ].join('\n');
@@ -75,7 +75,7 @@ function mergeSkillWithClaude(skillName: string, newerRemotes: string[]): boolea
       'claude',
       ['--allowedTools', 'Read,Write,Glob', '--model', 'sonnet', '-p', prompt],
       {
-        cwd: PROJECT_ROOT,
+        cwd: DATA_DIR,
         stdio: 'inherit',
       },
     );

@@ -1,11 +1,23 @@
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
+import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { ConfigSchema, McpServersSchema, formatValidationErrors } from './schema.js';
 
 export const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-export const DATA_DIR = resolve(PROJECT_ROOT, 'data');
+export const DEVSYNC_CONFIG_DIR = resolve(homedir(), '.config', 'devsync');
+export const DATA_DIR_FILE = resolve(DEVSYNC_CONFIG_DIR, 'data-dir');
+
+function resolveDataDir(): string {
+  if (existsSync(DATA_DIR_FILE)) {
+    return readFileSync(DATA_DIR_FILE, 'utf-8').trim();
+  }
+  // Default location — init will create this and write the pointer file
+  return resolve(DEVSYNC_CONFIG_DIR, 'data');
+}
+
+export const DATA_DIR = resolveDataDir();
 export const REMOTES_DIR = resolve(DATA_DIR, 'remotes');
 export const MERGED_DIR = resolve(DATA_DIR, 'merged');
 export const DREAM_LOG_DIR = resolve(DATA_DIR, 'dream_log');
@@ -66,10 +78,15 @@ export interface Config {
 }
 
 export function configExists(): boolean {
-  return existsSync(CONFIG_PATH);
+  return existsSync(DATA_DIR) && existsSync(CONFIG_PATH);
 }
 
 export function loadConfig(): Config {
+  if (!existsSync(DATA_DIR)) {
+    throw new Error(
+      `Data directory not found at ${DATA_DIR}.\nRun 'devsync init' to reconfigure, or check that the path is accessible.`,
+    );
+  }
   if (!existsSync(CONFIG_PATH)) {
     throw new Error(`Config not found. Run 'devsync init' first.`);
   }
@@ -101,7 +118,7 @@ export function loadMcpServers(): Record<string, McpServer> {
   const result = McpServersSchema.safeParse(parsed);
   if (!result.success) {
     throw new Error(
-      `Invalid mcp-servers.json:\n${formatValidationErrors(result.error)}\n\nFix the issues above in data/merged/mcp-servers.json.`,
+      `Invalid mcp-servers.json:\n${formatValidationErrors(result.error)}\n\nFix the issues above in ${MCP_SERVERS_PATH}.`,
     );
   }
 

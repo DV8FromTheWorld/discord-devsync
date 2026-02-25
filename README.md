@@ -17,12 +17,20 @@ pnpm link --global   # makes `devsync` available everywhere
 devsync init
 ```
 
-The setup wizard walks you through:
+The setup wizard first asks how to set up your data directory:
+
+- **Start fresh** — creates a new data directory at `~/.config/devsync/data/` with a git repo
+- **Clone from git** — clones an existing data repo (useful for sharing across machines)
+- **Use existing directory** — points to a data directory already on disk
+
+Then it walks you through:
 1. Configuring default paths per platform (macOS / Linux)
 2. Choosing machine role — hub-only (pure orchestrator) or hub + host (also receives content)
 3. Adding remote hosts with SSH connectivity testing
 4. Selecting layers for each host
 5. Optionally importing existing content (CLAUDE.md, KB, skills, MCP, permissions)
+
+The data directory is stored separately from the tool itself, so multiple users can share the same devsync installation. A pointer file at `~/.config/devsync/data-dir` tracks the location of each user's data.
 
 To add more hosts later:
 
@@ -126,13 +134,13 @@ A host can subscribe to multiple layers. The effective config is the union of al
 
 ### Secrets and environment variables
 
-Secrets are stored in `data/secrets/env` as `KEY=VALUE` pairs (gitignored). On push, they're written to `~/.devsync-env` on each host that has secrets enabled via its layer config.
+Secrets are stored in `secrets/env` within the data directory as `KEY=VALUE` pairs (gitignored). On push, they're written to `~/.devsync-env` on each host that has secrets enabled via its layer config.
 
 MCP server configs can reference secrets using `${VAR_NAME}` syntax — these are resolved at push time before writing to the remote's `~/.claude.json`.
 
 ### Dotfiles
 
-Dotfiles are assembled from `data/dotfiles/base/` (platform-agnostic) and `data/dotfiles/<platform>/` (darwin or linux). On push, devsync creates `~/.devsync.sh` on the remote and adds sourcing lines to `~/.bashrc`, `~/.zshrc`, and `~/.config/fish/config.fish`.
+Dotfiles are assembled from `dotfiles/base/` (platform-agnostic) and `dotfiles/<platform>/` (darwin or linux) within the data directory. On push, devsync creates `~/.devsync.sh` on the remote and adds sourcing lines to `~/.bashrc`, `~/.zshrc`, and `~/.config/fish/config.fish`.
 
 ### MCP discovery
 
@@ -146,36 +154,41 @@ The dream system uses Claude CLI to maintain and improve the knowledge base over
 - **Curiosity**: generates 3-10 investigation items by analyzing gaps, contradictions, and recurring issues in the KB
 - **Cleanup**: enforces a 4-week retention policy on journal entries and dream logs
 
-Dream runs are logged to `data/dream_log/YYYY-MM-DD.md` for auditability.
+Dream runs are logged to `dream_log/YYYY-MM-DD.md` within the data directory for auditability.
 
 ### Directory layout
 
+**Tool** (shared, installed once):
 ```
 devsync/
 ├── src/                        # Tool code
 ├── bin/                        # CLI wrapper
-├── data/
-│   ├── config.yaml             # Host + layer definitions
-│   ├── dotfiles/               # base/ + darwin/ + linux/ overlays
-│   ├── secrets/                # Gitignored API keys (KEY=VALUE)
-│   ├── merged/                 # Canonical merged state (pushed to hosts)
-│   │   ├── CLAUDE.md
-│   │   ├── discord-kb/
-│   │   │   ├── journal/        # Date-based journal entries
-│   │   │   └── curiosity/      # Generated investigation items
-│   │   ├── .claude/skills/
-│   │   ├── mcp-servers.json    # Claude-native MCP server configs
-│   │   ├── mcp-exclude.json    # Permanently excluded MCP servers
-│   │   └── permissions.json    # Claude Code permission rules
-│   ├── remotes/                # Fetched per-host state (gitignored)
-│   └── dream_log/              # Dream audit trail
 ├── package.json
 └── tsconfig.json
 ```
 
+**Data directory** (`~/.config/devsync/data/` by default, separate git repo):
+```
+data/
+├── config.yaml                 # Host + layer definitions
+├── dotfiles/                   # base/ + darwin/ + linux/ overlays
+├── secrets/                    # Gitignored API keys (KEY=VALUE)
+├── merged/                     # Canonical merged state (pushed to hosts)
+│   ├── CLAUDE.md
+│   ├── discord-kb/
+│   │   ├── journal/            # Date-based journal entries
+│   │   └── curiosity/          # Generated investigation items
+│   ├── .claude/skills/
+│   ├── mcp-servers.json        # Claude-native MCP server configs
+│   ├── mcp-exclude.json        # Permanently excluded MCP servers
+│   └── permissions.json        # Claude Code permission rules
+├── remotes/                    # Fetched per-host state (gitignored)
+└── dream_log/                  # Dream audit trail
+```
+
 ## Configuration
 
-The config file (`data/config.yaml`) has three sections:
+The config file (`config.yaml` in the data directory) has three sections:
 
 ```yaml
 defaults:

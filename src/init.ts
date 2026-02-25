@@ -1,19 +1,15 @@
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, statSync, writeFileSync, readFileSync, appendFileSync, rmSync } from 'fs';
+import { execFileSync } from 'child_process';
+import { resolve } from 'path';
 import { input, select, confirm, checkbox } from '@inquirer/prompts';
-import {
-  CONFIG_PATH,
-  DATA_DIR,
-  MERGED_DIR,
-  DOTFILES_DIR,
-  SECRETS_DIR,
-  DREAM_LOG_DIR,
-  saveConfig,
-  type Config,
-  type Platform,
-} from './config.js';
-import { info, success } from './log.js';
+import { stringify as stringifyYaml } from 'yaml';
+import ora from 'ora';
+import { DEVSYNC_CONFIG_DIR, DATA_DIR_FILE, type Config, type Platform } from './config.js';
+import { info, success, error } from './log.js';
 import { checkConnection } from './ssh.js';
 import { runImport } from './import.js';
+
+const DEFAULT_DATA_DIR = resolve(DEVSYNC_CONFIG_DIR, 'data');
 
 async function promptHost(
   layerNames: string[],
@@ -80,21 +76,191 @@ async function promptHost(
   }
 }
 
-export async function init(): Promise<void> {
-  info('Initializing devsync...');
+async function setupDataDir(): Promise<string> {
+  const mode = await select({
+    message: 'How would you like to set up your data directory?',
+    choices: [
+      { value: 'fresh', name: 'Start fresh' },
+      { value: 'git', name: 'Clone from a git repository' },
+      { value: 'path', name: 'Use an existing directory' },
+    ],
+  });
 
-  if (existsSync(CONFIG_PATH)) {
-    const overwrite = await confirm({
-      message: 'config.yaml already exists. Overwrite?',
+  if (mode === 'fresh') {
+    if (existsSync(DEFAULT_DATA_DIR)) {
+      const overwrite = await confirm({
+        message: `${DEFAULT_DATA_DIR} already exists. Remove it and start fresh?`,
+        default: false,
+      });
+      if (!overwrite) {
+        error('Aborted.');
+        process.exit(1);
+      }
+      rmSync(DEFAULT_DATA_DIR, { recursive: true, force: true });
+    }
+
+    mkdirSync(DEFAULT_DATA_DIR, { recursive: true });
+
+    try {
+      execFileSync('git', ['init'], { cwd: DEFAULT_DATA_DIR, stdio: 'pipe' });
+    } catch (e) {
+      error(`Failed to initialize git repository in ${DEFAULT_DATA_DIR}.`);
+      error((e as Error).message);
+      process.exit(1);
+    }
+
+    success(`Created data directory at ${DEFAULT_DATA_DIR}`);
+    return DEFAULT_DATA_DIR;
+  }
+
+  if (mode === 'git') {
+    const url = await input({ message: 'Git repository URL:' });
+    if (!url) {
+      error('No URL provided. Aborted.');
+      process.exit(1);
+    }
+
+    if (existsSync(DEFAULT_DATA_DIR)) {
+      const overwrite = await confirm({
+        message: `${DEFAULT_DATA_DIR} already exists. Remove it and clone?`,
+        default: false,
+      });
+      if (!overwrite) {
+        error('Aborted.');
+        process.exit(1);
+      }
+      rmSync(DEFAULT_DATA_DIR, { recursive: true, force: true });
+    }
+
+    mkdirSync(DEVSYNC_CONFIG_DIR, { recursive: true });
+
+    const spinner = ora({ prefixText: '  ' }).start(`Cloning ${url}...`);
+    try {
+      execFileSync('git', ['clone', url, DEFAULT_DATA_DIR], { stdio: 'pipe' });
+      spinner.succeed(`Cloned into ${DEFAULT_DATA_DIR}`);
+    } catch (e) {
+      spinner.fail('Clone failed');
+      const msg = (e as Error).message;
+      error(msg);
+      error('Check that the URL is correct and you have access.');
+      process.exit(1);
+    }
+
+    let dataDir = DEFAULT_DATA_DIR;
+
+    // Check if data lives in a subfolder of the repo
+    const configPath = resolve(dataDir, 'config.yaml');
+    if (!existsSync(configPath)) {
+      const useSub = await confirm({
+        message: 'No config.yaml found at the repo root. Is the data in a subfolder?',
+        default: false,
+      });
+      if (useSub) {
+        const sub = await input({ message: 'Subfolder path (relative to repo root):' });
+        if (sub) {
+          const subPath = resolve(dataDir, sub);
+          if (!existsSync(subPath) || !statSync(subPath).isDirectory()) {
+            error(`Subfolder not found: ${subPath}`);
+            process.exit(1);
+          }
+          dataDir = subPath;
+        }
+      } else {
+        info('Note: No config.yaml found. You may need to run the setup wizard.');
+      }
+    }
+
+    return dataDir;
+  }
+
+  // mode === 'path'
+  const customPath = await input({ message: 'Path to existing data directory:' });
+  if (!customPath) {
+    error('No path provided. Aborted.');
+    process.exit(1);
+  }
+
+  const resolved = resolve(customPath.replace(/^~/, process.env.HOME ?? '~'));
+  if (!existsSync(resolved)) {
+    error(`Directory not found: ${resolved}`);
+    process.exit(1);
+  }
+
+  const stat = statSync(resolved);
+  if (!stat.isDirectory()) {
+    error(`Not a directory: ${resolved}`);
+    process.exit(1);
+  }
+
+  const configPath = resolve(resolved, 'config.yaml');
+  if (!existsSync(configPath)) {
+    info('Note: No config.yaml found at that path. You may need to run the setup wizard.');
+  }
+
+  success(`Using data directory at ${resolved}`);
+  return resolved;
+}
+
+function writeDataDirPointer(dataDir: string): void {
+  mkdirSync(DEVSYNC_CONFIG_DIR, { recursive: true });
+  writeFileSync(DATA_DIR_FILE, dataDir + '\n');
+}
+
+function ensureSubdirs(dataDir: string): void {
+  for (const sub of ['merged', 'remotes', 'dotfiles', 'secrets', 'dream_log']) {
+    mkdirSync(resolve(dataDir, sub), { recursive: true });
+  }
+}
+
+function ensureGitignore(dataDir: string): void {
+  const gitignorePath = resolve(dataDir, '.gitignore');
+  const required = ['remotes/', 'secrets/'];
+
+  if (!existsSync(gitignorePath)) {
+    writeFileSync(gitignorePath, required.join('\n') + '\n');
+    return;
+  }
+
+  const existing = readFileSync(gitignorePath, 'utf-8');
+  const lines = existing.split('\n');
+  const missing = required.filter((entry) => !lines.includes(entry));
+  if (missing.length > 0) {
+    const suffix = existing.endsWith('\n') ? '' : '\n';
+    appendFileSync(gitignorePath, suffix + missing.join('\n') + '\n');
+  }
+}
+
+export async function init(): Promise<void> {
+  info('Initializing devsync...\n');
+
+  // Step 1: Set up data directory
+  const dataDir = await setupDataDir();
+  writeDataDirPointer(dataDir);
+
+  // Compute local paths based on the chosen data dir
+  const configPath = resolve(dataDir, 'config.yaml');
+  const secretsDir = resolve(dataDir, 'secrets');
+
+  // Ensure directory structure
+  ensureSubdirs(dataDir);
+  ensureGitignore(dataDir);
+
+  // Check if config already exists in the data dir
+  if (existsSync(configPath)) {
+    const reconfigure = await confirm({
+      message: 'config.yaml already exists in the data directory. Reconfigure?',
       default: false,
     });
-    if (!overwrite) {
-      info('Aborted.');
+    if (!reconfigure) {
+      console.log();
+      success('devsync initialized!');
+      info(`Data directory: ${dataDir}`);
       return;
     }
   }
 
-  // Default paths
+  // Step 2: Configure default paths
+  console.log();
   info('Configure default paths for each platform.');
   info('(These apply to all hosts of that platform unless overridden per-host.)');
   console.log();
@@ -147,7 +313,7 @@ export async function init(): Promise<void> {
 
   const layerNames = Object.keys(config.layers);
 
-  // Ask about this machine
+  // Step 3: Configure hosts
   const isHub = await select({
     message: 'What is this machine?',
     choices: [
@@ -186,19 +352,13 @@ export async function init(): Promise<void> {
     addMore = await confirm({ message: 'Add another remote host?', default: false });
   }
 
-  // Create directory structure
-  mkdirSync(DATA_DIR, { recursive: true });
-  mkdirSync(MERGED_DIR, { recursive: true });
-  mkdirSync(DOTFILES_DIR, { recursive: true });
-  mkdirSync(SECRETS_DIR, { recursive: true });
-  mkdirSync(DREAM_LOG_DIR, { recursive: true });
-
-  // Write config
-  saveConfig(config);
-  success(`Config written to ${CONFIG_PATH}`);
+  // Write config directly (don't rely on config.ts constants since DATA_DIR may not match)
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(configPath, stringifyYaml(config, { lineWidth: 120 }));
+  success(`Config written to ${configPath}`);
 
   // Write empty secrets file if it doesn't exist
-  const secretsEnv = `${SECRETS_DIR}/env`;
+  const secretsEnv = resolve(secretsDir, 'env');
   if (!existsSync(secretsEnv)) {
     writeFileSync(secretsEnv, '# KEY=VALUE\n');
   }
@@ -215,6 +375,7 @@ export async function init(): Promise<void> {
 
   console.log();
   success('devsync initialized!');
+  info(`Data directory: ${dataDir}`);
   const hostCount = Object.keys(config.hosts).length;
   if (hostCount > 0) {
     info(`${hostCount} host(s) configured. Run 'devsync sync push' to push content.`);

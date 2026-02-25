@@ -1,16 +1,19 @@
 import { execFileSync } from 'child_process';
 import ora from 'ora';
-import { PROJECT_ROOT } from '../config.js';
+import { DATA_DIR } from '../config.js';
 
 export function commit(): void {
   console.log('\nCommit:');
 
-  // Check if there's anything to commit first
-  execFileSync('git', ['add', 'data/'], { cwd: PROJECT_ROOT, stdio: 'pipe' });
+  // Stage only tracked data subdirectories (remotes/ and secrets/ are gitignored)
+  execFileSync('git', ['add', 'config.yaml', 'merged/', 'dotfiles/', 'dream_log/', '.gitignore'], {
+    cwd: DATA_DIR,
+    stdio: 'pipe',
+  });
 
   try {
-    const status = execFileSync('git', ['diff', '--cached', '--quiet'], {
-      cwd: PROJECT_ROOT,
+    execFileSync('git', ['diff', '--cached', '--quiet'], {
+      cwd: DATA_DIR,
       stdio: 'pipe',
     });
     // If diff --cached --quiet exits 0, there's nothing staged
@@ -20,7 +23,7 @@ export function commit(): void {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     try {
       execFileSync('git', ['commit', '-m', `sync ${timestamp}`], {
-        cwd: PROJECT_ROOT,
+        cwd: DATA_DIR,
         stdio: 'pipe',
       });
       ora({ prefixText: '  ' }).succeed('Changes committed');

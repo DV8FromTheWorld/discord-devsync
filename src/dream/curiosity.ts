@@ -1,7 +1,7 @@
 import { execFileSync } from 'child_process';
 import { mkdirSync } from 'fs';
 import { resolve } from 'path';
-import { MERGED_DIR, PROJECT_ROOT } from '../config.js';
+import { MERGED_DIR, DATA_DIR } from '../config.js';
 import { info, success, error } from '../log.js';
 
 export function curiosity(): void {
@@ -13,9 +13,9 @@ export function curiosity(): void {
 You are generating "curiosity" items — open questions and investigation prompts for agents.
 
 Read the following to identify gaps and opportunities:
-- data/merged/discord-kb/ (knowledge base)
-- data/merged/discord-kb/journal/ (recent agent journal entries)
-- data/merged/discord-kb/curiosity/active.md (previous curiosity items, if it exists)
+- merged/discord-kb/ (knowledge base)
+- merged/discord-kb/journal/ (recent agent journal entries)
+- merged/discord-kb/curiosity/active.md (previous curiosity items, if it exists)
 
 Sources of curiosity:
 1. **KB gaps**: Things agents searched for but didn't find (look for "Gaps" in journal entries)
@@ -24,7 +24,7 @@ Sources of curiosity:
 4. **Stale flags**: Entries flagged as outdated in journals but not yet fixed
 5. **Thin coverage**: Areas that seem important but have little documentation
 
-Write the result to data/merged/discord-kb/curiosity/active.md using this format:
+Write the result to merged/discord-kb/curiosity/active.md using this format:
 
 \`\`\`markdown
 # Open Questions
@@ -52,7 +52,7 @@ Print a brief summary when done.`;
       'claude',
       ['--allowedTools', 'Read,Write,Glob,Grep', '--model', 'sonnet', '-p', prompt],
       {
-        cwd: PROJECT_ROOT,
+        cwd: DATA_DIR,
         stdio: 'inherit',
       },
     );
