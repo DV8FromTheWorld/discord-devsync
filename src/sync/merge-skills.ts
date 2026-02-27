@@ -74,6 +74,8 @@ function mergeSkillWithClaude(
     `- Maintain proper skill structure and format`,
     `- Write merged result to merged/.claude/skills/${skillName}/`,
     '',
+    'You are running non-interactively in an automated pipeline.',
+    'Do not ask for permission or confirmation — proceed directly.',
     'Print brief summary when done.',
   ].join('\n');
 

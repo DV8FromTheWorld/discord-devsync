@@ -44,6 +44,8 @@ Rules:
 - Generate 3-10 items total — quality over quantity
 - Use Read, Glob, and Grep to explore content
 
+You are running non-interactively in an automated pipeline.
+Do not ask for permission or confirmation — proceed directly.
 Print a brief summary when done.`;
 
   info('Invoking Claude Code for curiosity generation...');

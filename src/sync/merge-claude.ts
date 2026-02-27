@@ -69,6 +69,8 @@ export function mergeClaudeMd(): string | null {
     '- Maintain proper markdown structure',
     '- Write result to merged/CLAUDE.md',
     '',
+    'You are running non-interactively in an automated pipeline.',
+    'Do not ask for permission or confirmation — proceed directly.',
     'Print brief summary when done.',
   ].join('\n');
 

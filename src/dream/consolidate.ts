@@ -33,6 +33,8 @@ Rules:
 - Be conservative — only make changes you're confident improve the corpus
 - Write a brief audit log entry to dream_log/${today}.md describing what you changed and why
 
+You are running non-interactively in an automated pipeline.
+Do not ask for permission or confirmation — proceed directly.
 When done, print a summary of actions taken.`;
 
   info('Invoking Claude Code for KB consolidation...');

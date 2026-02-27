@@ -53,6 +53,8 @@ function mergeAgentWithClaude(
     `- Preserve YAML frontmatter fields from all versions`,
     `- Write merged result to merged/.claude/agents/${fileName}`,
     '',
+    'You are running non-interactively in an automated pipeline.',
+    'Do not ask for permission or confirmation — proceed directly.',
     'Print brief summary of merge decisions.',
   ].join('\n');
 
