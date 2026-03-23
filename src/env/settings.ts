@@ -13,6 +13,7 @@ export async function reconcileSettings(host: ResolvedHost): Promise<boolean> {
 
   try {
     const settings = await readRemoteJson(host, '~/.claude/settings.json');
+    const before = JSON.stringify(settings);
 
     if (hasPermissions) {
       const existing = settings.permissions as Record<string, unknown> | undefined;
@@ -26,6 +27,9 @@ export async function reconcileSettings(host: ResolvedHost): Promise<boolean> {
       const existing = (settings.enabledPlugins as Record<string, boolean>) ?? {};
       settings.enabledPlugins = { ...existing, ...enabledPlugins };
     }
+
+    // Only write if settings actually changed
+    if (JSON.stringify(settings) === before) return false;
 
     await writeRemoteJson(host, '~/.claude/settings.json', settings);
     return true;
