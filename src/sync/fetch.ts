@@ -167,6 +167,11 @@ async function fetchHost(host: ResolvedHost): Promise<HostResult> {
   result.succeeded.push(permT.result ? 'settings' : 'settings (none)');
   if (pluginsT.result) result.succeeded.push('plugins');
 
+  // Record successful fetch timestamp
+  if (!result.unreachable) {
+    writeFileSync(resolve(remoteDir, '.last-fetch'), new Date().toISOString() + '\n');
+  }
+
   const wall = Math.round(performance.now() - hostStart);
   debug(`${host.name} (${wall}ms) — ${timings.join(', ')}`);
   return result;
