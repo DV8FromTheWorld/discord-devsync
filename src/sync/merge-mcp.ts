@@ -8,6 +8,7 @@ import {
   type McpServer,
 } from '../config.js';
 import { debug, warn } from '../log.js';
+import { type ContentChange, type FileChange } from './changes.js';
 
 interface RemoteMcpData {
   host: string;
@@ -36,7 +37,7 @@ function loadRemoteMcpFiles(): RemoteMcpData[] {
   return results;
 }
 
-export function mergeMcpServers(): { summary: string | null; warnings: string[] } {
+export function mergeMcpServers(): { changes: ContentChange | null; warnings: string[] } {
   debug('Starting MCP server merge...');
 
   const remoteSources = loadRemoteMcpFiles();
@@ -45,7 +46,7 @@ export function mergeMcpServers(): { summary: string | null; warnings: string[] 
 
   if (remoteSources.length === 0 && Object.keys(existingMerged).length === 0) {
     debug('  No MCP server configs found. Skipping.');
-    return { summary: null, warnings: [] };
+    return { changes: null, warnings: [] };
   }
 
   // Start with existing merged state
@@ -83,7 +84,9 @@ export function mergeMcpServers(): { summary: string | null; warnings: string[] 
         } else {
           // Conflict on known server — keep existing merged config
           const hosts = sources.map((s) => s.host).join(', ');
-          warn(`  Server '${serverName}' differs across hosts (${hosts}) — keeping existing config`);
+          warn(
+            `  Server '${serverName}' differs across hosts (${hosts}) — keeping existing config`,
+          );
         }
       }
     } else {
@@ -112,7 +115,12 @@ export function mergeMcpServers(): { summary: string | null; warnings: string[] 
     warnings.push(lines.join('\n'));
   }
 
-  const serverCount = Object.keys(merged).length;
-  if (serverCount === 0 && discovered.length === 0) return { summary: null, warnings };
-  return { summary: `${serverCount} MCP servers`, warnings };
+  // Build change info
+  const files: FileChange[] = [];
+  for (const d of discovered) {
+    files.push({ name: d.name, type: '+', note: "run 'devsync mcp review'" });
+  }
+
+  const changes: ContentChange | null = files.length > 0 ? { label: 'MCP', files } : null;
+  return { changes, warnings };
 }

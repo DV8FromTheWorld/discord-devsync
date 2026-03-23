@@ -115,7 +115,15 @@ export function rsync(src: string, dst: string, flags: string[] = []): Promise<R
   // Extract hostname from rsync src/dst (format: "hostname:path")
   const remoteMatch = src.match(/^([^:]+):/) ?? dst.match(/^([^:]+):/);
   const hostname = remoteMatch?.[1];
-  return exec('rsync', ['-av', '-e', `ssh ${sshOptsString(hostname)}`, ...flags, src, dst]);
+  return exec('rsync', [
+    '-a',
+    '--itemize-changes',
+    '-e',
+    `ssh ${sshOptsString(hostname)}`,
+    ...flags,
+    src,
+    dst,
+  ]);
 }
 
 export function rsyncMirror(src: string, dst: string): Promise<RunResult> {

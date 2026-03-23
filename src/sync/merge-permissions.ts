@@ -2,8 +2,9 @@ import { existsSync, readFileSync, readdirSync } from 'fs';
 import { resolve } from 'path';
 import { REMOTES_DIR, loadPermissions, savePermissions } from '../config.js';
 import { debug } from '../log.js';
+import { type ContentChange } from './changes.js';
 
-export function mergePermissions(): string | null {
+export function mergePermissions(): ContentChange | null {
   debug('Starting permissions merge...');
 
   const existing = loadPermissions();
@@ -34,5 +35,9 @@ export function mergePermissions(): string | null {
   }
 
   savePermissions([...all]);
-  return `${all.size} permissions`;
+
+  const newCount = all.size - existing.length;
+  if (newCount <= 0) return null;
+
+  return { label: 'permissions', summary: `+${newCount} rules` };
 }

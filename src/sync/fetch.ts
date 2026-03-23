@@ -1,9 +1,21 @@
-import { mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { REMOTES_DIR, type ResolvedHost } from '../config.js';
 import { rsync, rsyncMirror, remotePath, checkConnection, hostExec } from '../ssh.js';
 import { debug } from '../log.js';
-import { type HostResult, timed, runParallel } from './parallel.js';
+import { timed, runParallel } from './parallel.js';
+import {
+  type HostChanges,
+  type ContentChange,
+  type FileChange,
+  parseRsyncItemize,
+  buildFileChanges,
+  aggregateToDirectories,
+  snapshotTextFiles,
+  computeDiffStats,
+  formatDiffBar,
+  printHostChanges,
+} from './changes.js';
 
 async function fetchSettings(host: ResolvedHost, remoteDir: string): Promise<boolean> {
   const result = await hostExec(host, 'cat ~/.claude/settings.json 2>/dev/null');
@@ -27,7 +39,10 @@ async function fetchSettings(host: ResolvedHost, remoteDir: string): Promise<boo
 
   const enabledPlugins = settings.enabledPlugins;
   if (enabledPlugins && typeof enabledPlugins === 'object' && !Array.isArray(enabledPlugins)) {
-    writeFileSync(resolve(remoteDir, 'plugins-enabled.json'), JSON.stringify(enabledPlugins, null, 2) + '\n');
+    writeFileSync(
+      resolve(remoteDir, 'plugins-enabled.json'),
+      JSON.stringify(enabledPlugins, null, 2) + '\n',
+    );
     fetched = true;
   }
 
@@ -38,11 +53,17 @@ async function fetchPlugins(host: ResolvedHost, remoteDir: string): Promise<bool
   let fetched = false;
 
   // Fetch installed_plugins.json
-  const installedResult = await hostExec(host, 'cat ~/.claude/plugins/installed_plugins.json 2>/dev/null');
+  const installedResult = await hostExec(
+    host,
+    'cat ~/.claude/plugins/installed_plugins.json 2>/dev/null',
+  );
   if (installedResult.ok && installedResult.stdout.trim()) {
     try {
       JSON.parse(installedResult.stdout.trim()); // validate
-      writeFileSync(resolve(remoteDir, 'installed-plugins.json'), installedResult.stdout.trim() + '\n');
+      writeFileSync(
+        resolve(remoteDir, 'installed-plugins.json'),
+        installedResult.stdout.trim() + '\n',
+      );
       fetched = true;
     } catch {
       // Skip invalid JSON
@@ -58,15 +79,30 @@ async function fetchPlugins(host: ResolvedHost, remoteDir: string): Promise<bool
   return fetched;
 }
 
-async function fetchMcpServers(host: ResolvedHost, remoteDir: string): Promise<boolean> {
+async function fetchMcpServers(
+  host: ResolvedHost,
+  remoteDir: string,
+): Promise<ContentChange | null> {
+  // Read old state for comparison
+  const mcpFile = resolve(remoteDir, 'mcp-servers.json');
+  let oldServerNames = new Set<string>();
+  if (existsSync(mcpFile)) {
+    try {
+      const old = JSON.parse(readFileSync(mcpFile, 'utf-8'));
+      oldServerNames = new Set(Object.keys(old));
+    } catch {
+      /* ignore */
+    }
+  }
+
   const result = await hostExec(host, 'cat ~/.claude.json 2>/dev/null');
-  if (!result.ok || !result.stdout.trim()) return false;
+  if (!result.ok || !result.stdout.trim()) return null;
 
   let claudeJson: Record<string, unknown>;
   try {
     claudeJson = JSON.parse(result.stdout.trim());
   } catch {
-    return false;
+    return null;
   }
 
   // Collect MCP servers from all scopes (user + project-scoped)
@@ -78,8 +114,7 @@ async function fetchMcpServers(host: ResolvedHost, remoteDir: string): Promise<b
     Object.assign(allServers, userServers);
   }
 
-  // Project-scoped (under projects[path].mcpServers) — picks up servers added
-  // with default `--scope local` which most people use without thinking
+  // Project-scoped (under projects[path].mcpServers)
   const projects = claudeJson.projects;
   if (projects && typeof projects === 'object') {
     for (const projectData of Object.values(projects)) {
@@ -91,15 +126,25 @@ async function fetchMcpServers(host: ResolvedHost, remoteDir: string): Promise<b
     }
   }
 
-  if (Object.keys(allServers).length === 0) return false;
+  if (Object.keys(allServers).length === 0) return null;
 
   writeFileSync(resolve(remoteDir, 'mcp-servers.json'), JSON.stringify(allServers, null, 2) + '\n');
-  return true;
+
+  // Compare old vs new
+  const files: FileChange[] = [];
+  for (const name of Object.keys(allServers)) {
+    if (!oldServerNames.has(name)) {
+      files.push({ name, type: '+' });
+    }
+    // Modified servers are rare and hard to show meaningfully — skip
+  }
+
+  return files.length > 0 ? { label: 'MCP', files } : null;
 }
 
-async function fetchHost(host: ResolvedHost): Promise<HostResult> {
+async function fetchHost(host: ResolvedHost): Promise<HostChanges> {
   const hostStart = performance.now();
-  const result: HostResult = { host: host.name, succeeded: [], errors: [], unreachable: false };
+  const result: HostChanges = { host: host.name, unreachable: false, changes: [], errors: [] };
   const timings: string[] = [];
 
   // Check connectivity first (skip for localhost)
@@ -108,7 +153,6 @@ async function fetchHost(host: ResolvedHost): Promise<HostResult> {
     timings.push(`connect:${ms}ms`);
     if (!reachable) {
       result.unreachable = true;
-      result.errors.push('host unreachable');
       const wall = Math.round(performance.now() - hostStart);
       debug(`${host.name} (${wall}ms) — ${timings.join(', ')}`);
       return result;
@@ -124,18 +168,20 @@ async function fetchHost(host: ResolvedHost): Promise<HostResult> {
   const agentsDir = resolve(remoteDir, '.claude', 'agents');
   mkdirSync(agentsDir, { recursive: true });
 
+  // Snapshot existing files before fetch for diff bar computation
+  const claudeMdPath = resolve(remoteDir, 'CLAUDE.md');
+  const oldClaudeMd = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, 'utf-8') : null;
+  const oldKbFiles = snapshotTextFiles(kbDir);
+  const oldAgentFiles = snapshotTextFiles(agentsDir);
+
   // Run all fetch operations in parallel — they're independent
   const [claudeT, kbT, skillsT, agentsT, mcpT, permT, pluginsT] = await Promise.all([
     timed('claude.md', () =>
       rsync(remotePath(host, host.paths.claude_md), resolve(remoteDir, 'CLAUDE.md')),
     ),
     timed('kb', () => rsyncMirror(remotePath(host, host.paths.kb + '/'), kbDir + '/')),
-    timed('skills', () =>
-      rsyncMirror(remotePath(host, host.paths.skills + '/'), skillsDir + '/'),
-    ),
-    timed('agents', () =>
-      rsyncMirror(remotePath(host, '~/.claude/agents/'), agentsDir + '/'),
-    ),
+    timed('skills', () => rsyncMirror(remotePath(host, host.paths.skills + '/'), skillsDir + '/')),
+    timed('agents', () => rsyncMirror(remotePath(host, '~/.claude/agents/'), agentsDir + '/')),
     timed('mcp', () => fetchMcpServers(host, remoteDir)),
     timed('settings', () => fetchSettings(host, remoteDir)),
     timed('plugins', () => fetchPlugins(host, remoteDir)),
@@ -151,26 +197,62 @@ async function fetchHost(host: ResolvedHost): Promise<HostResult> {
     `plugins ${pluginsT.ms}ms`,
   );
 
-  if (claudeT.result.ok) result.succeeded.push('CLAUDE.md');
-  else result.errors.push(`CLAUDE.md not found (${host.paths.claude_md})`);
+  // ── Build change list from rsync output ──
 
-  if (kbT.result.ok) result.succeeded.push('KB');
-  else result.errors.push(`KB not found (${host.paths.kb})`);
+  // CLAUDE.md (single file)
+  if (claudeT.result.ok) {
+    const rsyncChanges = parseRsyncItemize(claudeT.result.stdout);
+    if (rsyncChanges.length > 0) {
+      const fc: FileChange = { name: 'CLAUDE.md', type: rsyncChanges[0].type };
+      if (rsyncChanges[0].type === '~' && oldClaudeMd) {
+        try {
+          const newContent = readFileSync(claudeMdPath, 'utf-8');
+          const stats = computeDiffStats(oldClaudeMd, newContent);
+          if (stats.added > 0 || stats.removed > 0) {
+            fc.diffBar = formatDiffBar(stats.added, stats.removed);
+          }
+        } catch {
+          /* skip */
+        }
+      }
+      result.changes.push({ label: 'CLAUDE.md', files: [fc] });
+    }
+  }
 
-  if (skillsT.result.ok) result.succeeded.push('skills');
-  else result.errors.push(`skills not found (${host.paths.skills})`);
+  // KB (directory)
+  if (kbT.result.ok) {
+    const files = buildFileChanges(kbT.result.stdout, kbDir, oldKbFiles);
+    if (files.length > 0) {
+      result.changes.push({ label: 'KB', files });
+    }
+  }
 
-  if (agentsT.result.ok) result.succeeded.push('agents');
-  else result.succeeded.push('agents (none)');
+  // Skills (aggregate to directory level)
+  if (skillsT.result.ok) {
+    const rsyncChanges = parseRsyncItemize(skillsT.result.stdout);
+    if (rsyncChanges.length > 0) {
+      const files = aggregateToDirectories(rsyncChanges);
+      if (files.length > 0) {
+        result.changes.push({ label: 'skills', files });
+      }
+    }
+  }
 
-  result.succeeded.push(mcpT.result ? 'MCP' : 'MCP (none)');
-  result.succeeded.push(permT.result ? 'settings' : 'settings (none)');
-  if (pluginsT.result) result.succeeded.push('plugins');
+  // Agents (individual files)
+  if (agentsT.result.ok) {
+    const files = buildFileChanges(agentsT.result.stdout, agentsDir, oldAgentFiles);
+    if (files.length > 0) {
+      result.changes.push({ label: 'agents', files });
+    }
+  }
+
+  // MCP (compared internally by fetchMcpServers)
+  if (mcpT.result) {
+    result.changes.push(mcpT.result);
+  }
 
   // Record successful fetch timestamp
-  if (!result.unreachable) {
-    writeFileSync(resolve(remoteDir, '.last-fetch'), new Date().toISOString() + '\n');
-  }
+  writeFileSync(resolve(remoteDir, '.last-fetch'), new Date().toISOString() + '\n');
 
   const wall = Math.round(performance.now() - hostStart);
   debug(`${host.name} (${wall}ms) — ${timings.join(', ')}`);
@@ -178,5 +260,5 @@ async function fetchHost(host: ResolvedHost): Promise<HostResult> {
 }
 
 export async function fetch(hosts: ResolvedHost[]): Promise<void> {
-  await runParallel('Pull', hosts, fetchHost);
+  await runParallel('Pull', hosts, fetchHost, printHostChanges);
 }

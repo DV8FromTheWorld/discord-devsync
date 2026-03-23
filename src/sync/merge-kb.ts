@@ -1,11 +1,10 @@
-import { existsSync, statSync, mkdirSync, readdirSync, copyFileSync } from 'fs';
+import { existsSync, statSync, mkdirSync, readdirSync, copyFileSync, readFileSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { resolve, relative } from 'path';
-import { mkdtempSync, rmSync } from 'fs';
-import { tmpdir } from 'os';
 import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
 import { debug, warn } from '../log.js';
 import { filesAreIdentical, generateFileDiffs } from './content-compare.js';
+import { type ContentChange, type FileChange, computeDiffStats, formatDiffBar } from './changes.js';
 
 const EXCLUDED_PREFIXES = ['journal/', 'curiosity/'];
 
@@ -109,7 +108,7 @@ function mergeKbFileWithClaude(
   }
 }
 
-export function mergeKbDirectories(): string | null {
+export function mergeKbDirectories(): ContentChange | null {
   debug('Starting KB directory merge...');
 
   const mergedKb = resolve(MERGED_DIR, 'discord-kb');
@@ -118,11 +117,13 @@ export function mergeKbDirectories(): string | null {
   const allKbFiles = [...findAllKbFiles()].sort();
   debug(`Found ${allKbFiles.length} unique KB files (excluding journal/curiosity)`);
 
-  let mergedCount = 0;
+  const files: FileChange[] = [];
 
   for (const kbFile of allKbFiles) {
     const mergedFile = resolve(mergedKb, kbFile);
-    const mergedMtime = existsSync(mergedFile) ? statSync(mergedFile).mtimeMs : 0;
+    const existed = existsSync(mergedFile);
+    const oldContent = existed ? readFileSync(mergedFile, 'utf-8') : null;
+    const mergedMtime = existed ? statSync(mergedFile).mtimeMs : 0;
 
     const newerRemotes: string[] = [];
     for (const host of readdirSync(REMOTES_DIR)) {
@@ -134,33 +135,64 @@ export function mergeKbDirectories(): string | null {
 
     if (newerRemotes.length === 0) {
       continue; // no changes
-    } else if (newerRemotes.length === 1) {
+    }
+
+    let claudeMerge = false;
+
+    if (newerRemotes.length === 1) {
       const host = relative(REMOTES_DIR, newerRemotes[0]).split('/')[0];
       debug(`  ${kbFile}: updated by ${host} — copying`);
       mkdirSync(resolve(mergedFile, '..'), { recursive: true });
       copyFileSync(newerRemotes[0], mergedFile);
-      mergedCount++;
     } else {
       mkdirSync(resolve(mergedFile, '..'), { recursive: true });
       // If all remotes are identical, skip Claude merge
       if (filesAreIdentical(newerRemotes)) {
         debug(`  ${kbFile}: ${newerRemotes.length} hosts updated, content identical — copying`);
         copyFileSync(newerRemotes[0], mergedFile);
-        mergedCount++;
       } else if (mergeKbFileWithClaude(kbFile, mergedFile, newerRemotes)) {
         debug(`  Merged ${kbFile} from ${newerRemotes.length} sources`);
-        mergedCount++;
+        claudeMerge = true;
       } else {
         warn(`  Merge failed for ${kbFile} — using most recent version`);
         const newest = newerRemotes.reduce((a, b) =>
           statSync(a).mtimeMs > statSync(b).mtimeMs ? a : b,
         );
         copyFileSync(newest, mergedFile);
-        mergedCount++;
       }
     }
+
+    // Check if content actually changed
+    if (existed && oldContent) {
+      try {
+        const newContent = readFileSync(mergedFile, 'utf-8');
+        if (oldContent === newContent) continue; // no actual change
+      } catch {
+        /* skip */
+      }
+    }
+
+    const fc: FileChange = { name: kbFile, type: existed ? '~' : '+' };
+
+    if (existed && oldContent) {
+      try {
+        const newContent = readFileSync(mergedFile, 'utf-8');
+        const stats = computeDiffStats(oldContent, newContent);
+        if (stats.added > 0 || stats.removed > 0) {
+          fc.diffBar = formatDiffBar(stats.added, stats.removed);
+        }
+      } catch {
+        /* skip */
+      }
+    }
+
+    if (claudeMerge) {
+      fc.note = 'conflict resolved via Claude';
+    }
+
+    files.push(fc);
   }
 
-  if (mergedCount === 0) return null;
-  return `${mergedCount} KB files`;
+  if (files.length === 0) return null;
+  return { label: 'KB', files };
 }

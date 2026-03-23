@@ -2,10 +2,11 @@ import { existsSync, mkdirSync, readdirSync, copyFileSync } from 'fs';
 import { resolve } from 'path';
 import { REMOTES_DIR, MERGED_DIR } from '../config.js';
 import { debug } from '../log.js';
+import { type ContentChange } from './changes.js';
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}\.md$/;
 
-export function collectJournalEntries(): string | null {
+export function collectJournalEntries(): ContentChange | null {
   debug('Collecting journal entries from remotes...');
 
   if (!existsSync(REMOTES_DIR)) return null;
@@ -33,5 +34,5 @@ export function collectJournalEntries(): string | null {
   }
 
   debug(`Collected ${totalEntries} journal entries into per-host directories`);
-  return `${totalEntries} journal entries`;
+  return { label: 'journal', summary: `${totalEntries} entries` };
 }

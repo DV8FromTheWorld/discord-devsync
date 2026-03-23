@@ -10,6 +10,7 @@ import { mergeAgents } from './merge-agents.js';
 import { mergePlugins } from './merge-plugins.js';
 import { mergePermissions } from './merge-permissions.js';
 import { collectJournalEntries } from './collect-journal.js';
+import { type ContentChange, printMergeChanges } from './changes.js';
 
 export async function merge(): Promise<void> {
   if (!existsSync(REMOTES_DIR)) {
@@ -19,41 +20,50 @@ export async function merge(): Promise<void> {
   console.log('\nMerge:');
   const spinner = ora({ text: 'Merging...', prefixText: '  ' }).start();
 
-  const parts: string[] = [];
+  const allChanges: ContentChange[] = [];
 
   const claudeResult = mergeClaudeMd();
-  if (claudeResult) parts.push(claudeResult);
+  allChanges.push(claudeResult ?? { label: 'CLAUDE.md' });
 
   const kbResult = mergeKbDirectories();
-  if (kbResult) parts.push(kbResult);
+  allChanges.push(kbResult ?? { label: 'KB' });
 
   const journalResult = collectJournalEntries();
-  if (journalResult) parts.push(journalResult);
+  if (journalResult) allChanges.push(journalResult);
 
   const skillsResult = await mergeSkillsDirectories();
-  if (skillsResult) parts.push(skillsResult);
+  allChanges.push(skillsResult ?? { label: 'skills' });
 
   const agentsResult = await mergeAgents();
-  if (agentsResult) parts.push(agentsResult);
+  allChanges.push(agentsResult ?? { label: 'agents' });
 
   const mcpResult = mergeMcpServers();
-  if (mcpResult.summary) parts.push(mcpResult.summary);
+  allChanges.push(mcpResult.changes ?? { label: 'MCP' });
 
   const pluginsResult = mergePlugins();
-  if (pluginsResult) parts.push(pluginsResult);
+  allChanges.push(pluginsResult ?? { label: 'plugins' });
 
   const permResult = mergePermissions();
-  if (permResult) parts.push(permResult);
+  allChanges.push(permResult ?? { label: 'permissions' });
 
   spinner.stop();
 
-  // Print MCP discovery warnings before the summary
+  // Print MCP discovery warnings before the change summary
   if (mcpResult.warnings.length > 0) {
     for (const w of mcpResult.warnings) {
       ora({ prefixText: '  ' }).warn(w);
     }
   }
 
-  const summary = parts.length > 0 ? parts.join(', ') : 'no changes';
-  ora({ prefixText: '  ' }).succeed(`Merge complete (${summary})`);
+  const hasChanges = allChanges.some((c) => (c.files && c.files.length > 0) || c.summary);
+
+  if (hasChanges) {
+    printMergeChanges(allChanges);
+  } else {
+    console.log(`  Everything up to date.`);
+  }
+
+  console.log();
+  const label = hasChanges ? 'Merge complete' : 'Merge complete — no changes';
+  ora({ prefixText: '  ' }).succeed(label);
 }

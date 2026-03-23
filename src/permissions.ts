@@ -2,7 +2,8 @@ import { loadPermissions, savePermissions, type ResolvedHost } from './config.js
 import { success, error } from './log.js';
 import { reconcilePermissions } from './env/permissions.js';
 import { checkConnection } from './ssh.js';
-import { type HostResult, runParallel } from './sync/parallel.js';
+import { runParallel } from './sync/parallel.js';
+import { type HostChanges, printHostChanges } from './sync/changes.js';
 
 export function permissionsList(): void {
   const permissions = loadPermissions();
@@ -52,22 +53,27 @@ export function permissionsRemove(rule: string): void {
 }
 
 export async function permissionsPush(hosts: ResolvedHost[]): Promise<void> {
-  async function pushPermissionsToHost(host: ResolvedHost): Promise<HostResult> {
-    const result: HostResult = { host: host.name, succeeded: [], errors: [], unreachable: false };
+  async function pushPermissionsToHost(host: ResolvedHost): Promise<HostChanges> {
+    const result: HostChanges = {
+      host: host.name,
+      unreachable: false,
+      changes: [],
+      errors: [],
+    };
 
     if (!host.isLocal) {
       const reachable = await checkConnection(host);
       if (!reachable) {
         result.unreachable = true;
-        result.errors.push('host unreachable');
         return result;
       }
     }
 
     try {
       const didPush = await reconcilePermissions(host);
-      if (didPush) result.succeeded.push('settings');
-      else result.succeeded.push('settings (no changes)');
+      if (didPush) {
+        result.changes.push({ label: 'settings', summary: 'updated' });
+      }
     } catch {
       result.errors.push('settings failed');
     }
@@ -75,5 +81,5 @@ export async function permissionsPush(hosts: ResolvedHost[]): Promise<void> {
     return result;
   }
 
-  await runParallel('\nPermissions push', hosts, pushPermissionsToHost);
+  await runParallel('\nPermissions push', hosts, pushPermissionsToHost, printHostChanges);
 }

@@ -11,8 +11,9 @@ import {
   type PluginInstallEntry,
 } from '../config.js';
 import { debug } from '../log.js';
+import { type ContentChange } from './changes.js';
 
-export function mergePlugins(): string | null {
+export function mergePlugins(): ContentChange | null {
   debug('Starting plugins merge...');
 
   const parts: string[] = [];
@@ -130,7 +131,7 @@ export function mergePlugins(): string | null {
     return null;
   }
 
-  return parts.join(', ');
+  return { label: 'plugins', summary: parts.join(', ') };
 }
 
 /** Normalize an absolute installPath to a canonical ~/.claude/plugins/cache/... form. */
