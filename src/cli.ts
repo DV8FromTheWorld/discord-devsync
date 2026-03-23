@@ -22,6 +22,7 @@ import {
   permissionsRemove,
   permissionsPush,
 } from './permissions.js';
+import { showStatus } from './status.js';
 
 const USAGE = `\
 Usage: devsync <command> [subcommand] [options]
@@ -29,6 +30,7 @@ Usage: devsync <command> [subcommand] [options]
 Setup:
   init                   First-time setup wizard
   import                 Import existing content (CLAUDE.md, KB, skills, MCP, permissions)
+  status                 Show current configuration and content overview
   help                   Show this help message
 
 Sync:
@@ -107,6 +109,12 @@ export async function run(args: string[]): Promise<void> {
   if (command === 'import') {
     requireConfig();
     await runImport();
+    return;
+  }
+
+  if (command === 'status') {
+    requireConfig();
+    showStatus();
     return;
   }
 
