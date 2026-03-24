@@ -3,7 +3,7 @@ import { error, setVerbose } from './log.js';
 import { fetch } from './sync/fetch.js';
 import { merge } from './sync/merge.js';
 import { push } from './sync/push.js';
-import { commit } from './sync/commit.js';
+import { commit, maybePush } from './sync/commit.js';
 import { status } from './sync/status.js';
 import { consolidate } from './dream/consolidate.js';
 import { curiosity } from './dream/curiosity.js';
@@ -34,11 +34,11 @@ Setup:
   help                   Show this help message
 
 Sync:
-  sync full              Complete sync cycle (pull -> merge -> push -> commit)
+  sync full [--push]     Complete sync cycle (pull -> merge -> push -> commit)
   sync pull              Download files from all hosts
   sync merge             Merge downloaded files using Claude Code
   sync push [--host X]   Upload merged files to hosts
-  sync commit            Commit changes to git
+  sync commit [--push]   Commit changes to git
   sync status            Show current sync status
 
 Dream:
@@ -129,6 +129,7 @@ export async function run(args: string[]): Promise<void> {
     }
 
     const hosts = getHosts();
+    const forcePush = args.includes('--push');
     switch (subcommand) {
       case 'pull':
       case 'fetch':
@@ -142,6 +143,7 @@ export async function run(args: string[]): Promise<void> {
         break;
       case 'commit':
         commit();
+        await maybePush(config, forcePush);
         break;
       case 'status':
         status();
@@ -151,6 +153,7 @@ export async function run(args: string[]): Promise<void> {
         await merge();
         await push(hosts);
         commit();
+        await maybePush(config, forcePush);
         break;
       default:
         error(`Unknown sync subcommand: ${subcommand}`);
@@ -176,7 +179,8 @@ export async function run(args: string[]): Promise<void> {
       case 'cleanup':
         await cleanup(hosts);
         break;
-      case 'full':
+      case 'full': {
+        const dreamForcePush = args.includes('--push');
         await fetch(hosts);
         await merge();
         consolidate();
@@ -184,7 +188,9 @@ export async function run(args: string[]): Promise<void> {
         await cleanup(hosts);
         await push(hosts);
         commit();
+        await maybePush(config, dreamForcePush);
         break;
+      }
       default:
         error(`Unknown dream subcommand: ${subcommand}`);
         console.log(USAGE);

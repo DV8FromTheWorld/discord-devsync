@@ -33,6 +33,7 @@ export const ConfigSchema = z
       message: 'at least one layer must be defined',
     }),
     hosts: z.record(z.string(), HostConfigSchema),
+    auto_push: z.enum(['ask', 'always', 'never']).optional(),
   })
   .superRefine((config, ctx) => {
     // Validate that all host layers reference defined layers
@@ -68,7 +69,11 @@ const StdioMcpServerSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
 });
 
-const McpServerSchema = z.discriminatedUnion('type', [HttpMcpServerSchema, SseMcpServerSchema, StdioMcpServerSchema]);
+const McpServerSchema = z.discriminatedUnion('type', [
+  HttpMcpServerSchema,
+  SseMcpServerSchema,
+  StdioMcpServerSchema,
+]);
 
 export const McpServersSchema = z.record(z.string(), McpServerSchema);
 

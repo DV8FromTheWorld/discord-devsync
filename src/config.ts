@@ -81,10 +81,13 @@ export interface PlatformDefaults {
   paths: Paths;
 }
 
+export type AutoPush = 'ask' | 'always' | 'never';
+
 export interface Config {
   defaults: Record<Platform, PlatformDefaults>;
   layers: Record<string, Layer>;
   hosts: Record<string, HostConfig>;
+  auto_push?: AutoPush;
 }
 
 export function configExists(): boolean {
