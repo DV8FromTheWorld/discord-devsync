@@ -24,6 +24,7 @@ import {
   type FileChange,
   parseRsyncItemize,
   aggregateToDirectories,
+  snapshotTextFiles,
   diffBarForFiles,
   printHostChanges,
 } from './changes.js';
@@ -49,18 +50,21 @@ async function pushFilteredSkills(host: ResolvedHost): Promise<ContentChange | n
       await rsync(src + '/', dst + '/');
     }
 
+    // Snapshot cached state before push for diff bars
+    const cachedSkillsDir = resolve(REMOTES_DIR, host.name, '.claude', 'skills');
+    const oldSkillFiles = snapshotTextFiles(cachedSkillsDir);
+
     const r = await rsyncMirror(tempDir + '/', remotePath(host, host.paths.skills + '/'));
     if (!r.ok) return null;
 
     // Update local remotes cache so next fetch doesn't report these as new
-    const cachedSkillsDir = resolve(REMOTES_DIR, host.name, '.claude', 'skills');
     mkdirSync(cachedSkillsDir, { recursive: true });
     await rsyncMirror(tempDir + '/', cachedSkillsDir + '/');
 
     const rsyncChanges = parseRsyncItemize(r.stdout);
     if (rsyncChanges.length === 0) return null;
 
-    const files = aggregateToDirectories(rsyncChanges);
+    const files = aggregateToDirectories(rsyncChanges, tempDir, oldSkillFiles);
     return files.length > 0 ? { label: 'skills', files } : null;
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

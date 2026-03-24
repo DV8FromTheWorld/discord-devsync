@@ -5,7 +5,12 @@ import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
 import { debug, warn } from '../log.js';
 import { rsyncMirror } from '../ssh.js';
 import { dirsAreIdentical, generateDirDiffs } from './content-compare.js';
-import { type ContentChange, type FileChange } from './changes.js';
+import {
+  type ContentChange,
+  type FileChange,
+  snapshotTextFiles,
+  directoryDiffBar,
+} from './changes.js';
 
 function findAllSkills(): Set<string> {
   const skills = new Set<string>();
@@ -95,7 +100,8 @@ function mergeSkillWithClaude(
       ],
       {
         cwd: DATA_DIR,
-        stdio: 'inherit',
+        encoding: 'utf-8',
+        stdio: 'pipe',
       },
     );
     return true;
@@ -118,6 +124,7 @@ export async function mergeSkillsDirectories(): Promise<ContentChange | null> {
   for (const skillName of allSkills) {
     const mergedSkill = resolve(mergedSkills, skillName);
     const existed = existsSync(mergedSkill);
+    const oldSnapshot = existed ? snapshotTextFiles(mergedSkill) : new Map<string, string>();
     const mergedMtime = existed ? newestMtime(mergedSkill) : 0;
 
     const newerRemotes: string[] = [];
@@ -150,7 +157,8 @@ export async function mergeSkillsDirectories(): Promise<ContentChange | null> {
       }
     }
 
-    files.push({ name: skillName + '/', type: existed ? '~' : '+' });
+    const diffBar = existed ? directoryDiffBar(oldSnapshot, mergedSkill) : undefined;
+    files.push({ name: skillName + '/', type: existed ? '~' : '+', diffBar });
   }
 
   if (files.length === 0) return null;

@@ -74,7 +74,8 @@ function mergeAgentWithClaude(
       ],
       {
         cwd: DATA_DIR,
-        stdio: 'inherit',
+        encoding: 'utf-8',
+        stdio: 'pipe',
       },
     );
     return true;

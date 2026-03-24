@@ -93,7 +93,8 @@ export function mergeClaudeMd(): ContentChange | null {
         ],
         {
           cwd: DATA_DIR,
-          stdio: 'inherit',
+          encoding: 'utf-8',
+          stdio: 'pipe',
         },
       );
     } catch {

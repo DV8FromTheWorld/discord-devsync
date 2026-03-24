@@ -172,6 +172,7 @@ async function fetchHost(host: ResolvedHost): Promise<HostChanges> {
   const claudeMdPath = resolve(remoteDir, 'CLAUDE.md');
   const oldClaudeMd = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, 'utf-8') : null;
   const oldKbFiles = snapshotTextFiles(kbDir);
+  const oldSkillFiles = snapshotTextFiles(skillsDir);
   const oldAgentFiles = snapshotTextFiles(agentsDir);
 
   // Run all fetch operations in parallel — they're independent
@@ -231,7 +232,7 @@ async function fetchHost(host: ResolvedHost): Promise<HostChanges> {
   if (skillsT.result.ok) {
     const rsyncChanges = parseRsyncItemize(skillsT.result.stdout);
     if (rsyncChanges.length > 0) {
-      const files = aggregateToDirectories(rsyncChanges);
+      const files = aggregateToDirectories(rsyncChanges, skillsDir, oldSkillFiles);
       if (files.length > 0) {
         result.changes.push({ label: 'skills', files });
       }

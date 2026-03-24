@@ -208,23 +208,95 @@ export function buildFileChanges(
   });
 }
 
-/** Aggregate file-level rsync changes to directory level (e.g. for skills). */
-export function aggregateToDirectories(changes: RsyncFileChange[]): FileChange[] {
-  const dirMap = new Map<string, Set<'+' | '~'>>();
+/**
+ * Aggregate file-level rsync changes to directory level (e.g. for skills).
+ * If baseDir and snapshot are provided, computes aggregate diff bars for modified directories.
+ */
+export function aggregateToDirectories(
+  changes: RsyncFileChange[],
+  baseDir?: string,
+  snapshot?: Map<string, string>,
+): FileChange[] {
+  const dirMap = new Map<string, { types: Set<'+' | '~'>; files: RsyncFileChange[] }>();
   for (const rc of changes) {
     const parts = rc.path.split('/');
     if (parts.length < 2) continue;
     const dirName = parts[0];
-    if (!dirMap.has(dirName)) dirMap.set(dirName, new Set());
-    dirMap.get(dirName)!.add(rc.type);
+    if (!dirMap.has(dirName)) dirMap.set(dirName, { types: new Set(), files: [] });
+    const entry = dirMap.get(dirName)!;
+    entry.types.add(rc.type);
+    entry.files.push(rc);
   }
 
-  const files: FileChange[] = [];
-  for (const [name, types] of dirMap) {
-    // If any file in dir was modified, dir is ~; if all new, dir is +
-    files.push({ name: name + '/', type: types.has('~') ? '~' : '+' });
+  const result: FileChange[] = [];
+  for (const [name, { types, files }] of dirMap) {
+    const type = types.has('~') ? '~' : '+';
+    let diffBar: string | undefined;
+
+    if (baseDir && snapshot && type === '~') {
+      let totalAdded = 0;
+      let totalRemoved = 0;
+      for (const rc of files) {
+        if (rc.type === '~') {
+          const oldContent = snapshot.get(rc.path);
+          if (oldContent) {
+            try {
+              const newContent = readFileSync(resolve(baseDir, rc.path), 'utf-8');
+              const stats = computeDiffStats(oldContent, newContent);
+              totalAdded += stats.added;
+              totalRemoved += stats.removed;
+            } catch {
+              /* skip */
+            }
+          }
+        } else {
+          // New file within modified directory — count as additions
+          try {
+            const newContent = readFileSync(resolve(baseDir, rc.path), 'utf-8');
+            totalAdded += newContent.split('\n').length;
+          } catch {
+            /* skip */
+          }
+        }
+      }
+      if (totalAdded > 0 || totalRemoved > 0) {
+        diffBar = formatDiffBar(totalAdded, totalRemoved);
+      }
+    }
+
+    result.push({ name: name + '/', type, diffBar });
   }
-  return files;
+  return result;
+}
+
+/** Compute aggregate diff bar for a directory by comparing old snapshot against current state. */
+export function directoryDiffBar(
+  oldSnapshot: Map<string, string>,
+  dir: string,
+): string | undefined {
+  const newSnapshot = snapshotTextFiles(dir);
+  let totalAdded = 0;
+  let totalRemoved = 0;
+
+  for (const [path, newContent] of newSnapshot) {
+    const oldContent = oldSnapshot.get(path);
+    if (!oldContent) {
+      totalAdded += newContent.split('\n').length;
+    } else if (oldContent !== newContent) {
+      const stats = computeDiffStats(oldContent, newContent);
+      totalAdded += stats.added;
+      totalRemoved += stats.removed;
+    }
+  }
+
+  for (const [path, oldContent] of oldSnapshot) {
+    if (!newSnapshot.has(path)) {
+      totalRemoved += oldContent.split('\n').length;
+    }
+  }
+
+  if (totalAdded === 0 && totalRemoved === 0) return undefined;
+  return formatDiffBar(totalAdded, totalRemoved);
 }
 
 // ─── Rendering ──────────────────────────────────────────────────
@@ -263,7 +335,7 @@ function printContentChange(change: ContentChange, indent: string): void {
   }
 
   if (remaining > 0) {
-    console.log(`${fileIndent}${DIM}… and ${remaining} more${RESET}`);
+    console.log(`${fileIndent}${DIM}... and ${remaining} more${RESET}`);
   }
 }
 
