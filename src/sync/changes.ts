@@ -346,7 +346,7 @@ export function printHostChanges(result: HostChanges): void {
   }
 
   if (result.changes.length === 0 && result.errors.length === 0) {
-    ora({ prefixText: '  ' }).succeed(`${result.host} — no changes`);
+    ora({ prefixText: '  ' }).succeed(`${result.host} — ${DIM}no changes${RESET}`);
     return;
   }
 

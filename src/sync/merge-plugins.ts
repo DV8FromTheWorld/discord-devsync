@@ -20,6 +20,7 @@ export function mergePlugins(): ContentChange | null {
 
   // --- Merge enabledPlugins ---
   const mergedEnabled: Record<string, boolean> = loadEnabledPlugins();
+  const oldEnabledCount = Object.keys(mergedEnabled).length;
 
   if (existsSync(REMOTES_DIR)) {
     for (const host of readdirSync(REMOTES_DIR)) {
@@ -48,11 +49,15 @@ export function mergePlugins(): ContentChange | null {
   const enabledCount = Object.keys(mergedEnabled).length;
   if (enabledCount > 0) {
     saveEnabledPlugins(mergedEnabled);
-    parts.push(`${enabledCount} enabled plugins`);
+  }
+  const newEnabled = enabledCount - oldEnabledCount;
+  if (newEnabled > 0) {
+    parts.push(`+${newEnabled} enabled plugins`);
   }
 
   // --- Merge installed_plugins.json ---
   const mergedInstalled: InstalledPluginsFile = loadInstalledPlugins();
+  const oldInstalledCount = Object.keys(mergedInstalled.plugins).length;
 
   if (existsSync(REMOTES_DIR)) {
     for (const host of readdirSync(REMOTES_DIR)) {
@@ -105,7 +110,10 @@ export function mergePlugins(): ContentChange | null {
   const pluginCount = Object.keys(mergedInstalled.plugins).length;
   if (pluginCount > 0) {
     saveInstalledPlugins(mergedInstalled);
-    parts.push(`${pluginCount} installed plugins`);
+  }
+  const newInstalled = pluginCount - oldInstalledCount;
+  if (newInstalled > 0) {
+    parts.push(`+${newInstalled} installed plugins`);
   }
 
   // --- Merge cache directories ---
@@ -122,9 +130,7 @@ export function mergePlugins(): ContentChange | null {
     }
   }
 
-  if (cacheCount > 0) {
-    parts.push(`plugin cache from ${cacheCount} host${cacheCount !== 1 ? 's' : ''}`);
-  }
+  // Cache is always copied — don't report unless there are other changes
 
   if (parts.length === 0) {
     debug('  No plugins found. Skipping.');
