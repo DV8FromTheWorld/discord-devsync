@@ -43,13 +43,14 @@ devsync host add
 ```
 devsync init                      First-time setup wizard
 devsync import                    Import existing content (CLAUDE.md, KB, skills, MCP, permissions)
+devsync status                    Show config, hosts, and content overview
 devsync help                      Show help
 
-devsync sync full                 pull -> merge -> push -> commit (default)
+devsync sync full [--push]        pull -> merge -> push -> commit (default)
 devsync sync pull                 Pull from all remotes (parallel)
 devsync sync merge                Merge (Claude CLI for conflicts)
 devsync sync push [--host X]      Push to hosts (parallel)
-devsync sync commit               Git commit merged state
+devsync sync commit [--push]      Git commit merged state
 devsync sync status               Show state of all hosts
 
 devsync dream full                pull -> merge -> dream -> push -> commit
@@ -77,6 +78,7 @@ devsync permissions remove <rule> Remove a permission rule
 
 - `--verbose` / `-v` — Enable debug-level logging (per-operation timings, merge details, etc.)
 - `--host <name>` — Filter push/pull to a specific host
+- `--push` — Force push to git remote after commit (on `sync full` and `sync commit`)
 
 ## Architecture
 
@@ -93,7 +95,30 @@ pull (parallel)  ->  merge (sequential)  ->  push (parallel)  ->  commit
 - **Pull**: fetches CLAUDE.md, KB, skills, MCP config, and permissions from each host concurrently
 - **Merge**: combines content from all hosts — single-source files are copied directly, multi-source conflicts use Claude CLI for intelligent merging
 - **Push**: uploads the merged state back to each host concurrently, filtered by layer config
-- **Commit**: stages and commits the merged state to git
+- **Commit**: stages and commits the merged state to git, then optionally pushes to the remote
+
+Each phase shows detailed change reporting — individual files with `+` (new) and `~` (modified) markers, git-style diff bars for modified files, and clear "no changes" for no-op syncs:
+
+```
+Pull:
+  ✔ macbook — no changes
+  ✔ devbox
+      KB
+        + api-rate-limits.md
+        ~ troubleshooting-guide.md  +++--
+      skills
+        + skema-snippets/
+
+Merge:
+  CLAUDE.md — identical, skipped
+  KB
+    + api-rate-limits.md
+    ~ troubleshooting-guide.md  +++--  (conflict resolved via Claude)
+  skills
+    + skema-snippets/
+  permissions — +3 rules
+  plugins — identical, skipped
+```
 
 SSH connection multiplexing (`ControlMaster`) is used automatically — the first SSH connection per host establishes a shared socket, and all subsequent operations reuse it.
 
@@ -211,6 +236,8 @@ layers:
     dotfiles: true
     secrets: true
 
+auto_push: ask                    # 'ask' (default), 'always', or 'never'
+
 hosts:
   devbox-1:
     hostname: devbox-1.internal    # SSH hostname or 'localhost'
@@ -219,6 +246,8 @@ hosts:
     paths:                          # Optional per-host path overrides
       claude_md: ~/custom/path/CLAUDE.md
 ```
+
+The `auto_push` setting controls whether devsync pushes to the git remote after committing. When set to `ask` (the default), it prompts after each commit with options to push now, skip, or save a preference. Use `--push` on the command line to force a push regardless of the setting.
 
 ## Prerequisites
 
