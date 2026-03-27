@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, statSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { REMOTES_DIR, type ResolvedHost } from '../config.js';
 import { rsync, rsyncMirror, remotePath, checkConnection, hostExec } from '../ssh.js';
@@ -169,27 +169,41 @@ async function fetchHost(host: ResolvedHost): Promise<HostChanges> {
   mkdirSync(agentsDir, { recursive: true });
 
   // Snapshot existing files before fetch for diff bar computation
-  const claudeMdPath = resolve(remoteDir, 'CLAUDE.md');
-  const oldClaudeMd = existsSync(claudeMdPath) ? readFileSync(claudeMdPath, 'utf-8') : null;
+  const readIfFile = (p: string) =>
+    existsSync(p) && statSync(p).isFile() ? readFileSync(p, 'utf-8') : null;
+  const userClaudePath = resolve(remoteDir, 'user-CLAUDE.md');
+  const oldUserClaude = readIfFile(userClaudePath);
+  const localClaudePath = resolve(remoteDir, 'CLAUDE.local.md');
+  const oldLocalClaude = readIfFile(localClaudePath);
   const oldKbFiles = snapshotTextFiles(kbDir);
   const oldSkillFiles = snapshotTextFiles(skillsDir);
   const oldAgentFiles = snapshotTextFiles(agentsDir);
 
   // Run all fetch operations in parallel — they're independent
-  const [claudeT, kbT, skillsT, agentsT, mcpT, permT, pluginsT] = await Promise.all([
-    timed('claude.md', () =>
-      rsync(remotePath(host, host.paths.claude_md), resolve(remoteDir, 'CLAUDE.md')),
-    ),
-    timed('kb', () => rsyncMirror(remotePath(host, host.paths.kb + '/'), kbDir + '/')),
-    timed('skills', () => rsyncMirror(remotePath(host, host.paths.skills + '/'), skillsDir + '/')),
-    timed('agents', () => rsyncMirror(remotePath(host, '~/.claude/agents/'), agentsDir + '/')),
-    timed('mcp', () => fetchMcpServers(host, remoteDir)),
-    timed('settings', () => fetchSettings(host, remoteDir)),
-    timed('plugins', () => fetchPlugins(host, remoteDir)),
-  ]);
+  const [userClaudeT, localClaudeT, kbT, skillsT, agentsT, mcpT, permT, pluginsT] =
+    await Promise.all([
+      timed('user-claude', () =>
+        rsync(remotePath(host, host.paths.user_claude_md), resolve(remoteDir, 'user-CLAUDE.md')),
+      ),
+      timed('claude-local', () =>
+        rsync(
+          remotePath(host, host.paths.claude_local_md),
+          resolve(remoteDir, 'CLAUDE.local.md'),
+        ),
+      ),
+      timed('kb', () => rsyncMirror(remotePath(host, host.paths.kb + '/'), kbDir + '/')),
+      timed('skills', () =>
+        rsyncMirror(remotePath(host, host.paths.skills + '/'), skillsDir + '/'),
+      ),
+      timed('agents', () => rsyncMirror(remotePath(host, '~/.claude/agents/'), agentsDir + '/')),
+      timed('mcp', () => fetchMcpServers(host, remoteDir)),
+      timed('settings', () => fetchSettings(host, remoteDir)),
+      timed('plugins', () => fetchPlugins(host, remoteDir)),
+    ]);
 
   timings.push(
-    `claude.md ${claudeT.ms}ms`,
+    `user-claude ${userClaudeT.ms}ms`,
+    `claude-local ${localClaudeT.ms}ms`,
     `kb ${kbT.ms}ms`,
     `skills ${skillsT.ms}ms`,
     `agents ${agentsT.ms}ms`,
@@ -200,23 +214,38 @@ async function fetchHost(host: ResolvedHost): Promise<HostChanges> {
 
   // ── Build change list from rsync output ──
 
-  // CLAUDE.md (single file)
-  if (claudeT.result.ok) {
-    const rsyncChanges = parseRsyncItemize(claudeT.result.stdout);
-    if (rsyncChanges.length > 0) {
-      const fc: FileChange = { name: 'CLAUDE.md', type: rsyncChanges[0].type };
-      if (rsyncChanges[0].type === '~' && oldClaudeMd) {
-        try {
-          const newContent = readFileSync(claudeMdPath, 'utf-8');
-          const stats = computeDiffStats(oldClaudeMd, newContent);
-          if (stats.added > 0 || stats.removed > 0) {
-            fc.diffBar = formatDiffBar(stats.added, stats.removed);
+  // User CLAUDE.md and CLAUDE.local.md (single files)
+  for (const { timedResult, fileName, oldContent, label } of [
+    {
+      timedResult: userClaudeT,
+      fileName: 'user-CLAUDE.md',
+      oldContent: oldUserClaude,
+      label: 'user CLAUDE.md',
+    },
+    {
+      timedResult: localClaudeT,
+      fileName: 'CLAUDE.local.md',
+      oldContent: oldLocalClaude,
+      label: 'CLAUDE.local.md',
+    },
+  ]) {
+    if (timedResult.result.ok) {
+      const rsyncChanges = parseRsyncItemize(timedResult.result.stdout);
+      if (rsyncChanges.length > 0) {
+        const fc: FileChange = { name: fileName, type: rsyncChanges[0].type };
+        if (rsyncChanges[0].type === '~' && oldContent) {
+          try {
+            const newContent = readFileSync(resolve(remoteDir, fileName), 'utf-8');
+            const stats = computeDiffStats(oldContent, newContent);
+            if (stats.added > 0 || stats.removed > 0) {
+              fc.diffBar = formatDiffBar(stats.added, stats.removed);
+            }
+          } catch {
+            /* skip */
           }
-        } catch {
-          /* skip */
         }
+        result.changes.push({ label, files: [fc] });
       }
-      result.changes.push({ label: 'CLAUDE.md', files: [fc] });
     }
   }
 

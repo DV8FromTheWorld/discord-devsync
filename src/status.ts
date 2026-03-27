@@ -143,12 +143,20 @@ export function showStatus(): void {
   // --- Content (merged) ---
   heading('Merged Content');
 
-  const claudePath = resolve(MERGED_DIR, 'CLAUDE.md');
-  if (existsSync(claudePath)) {
-    const lines = readFileSync(claudePath, 'utf-8').split('\n').length;
-    kv('CLAUDE.md', `${GREEN}✓${RESET} ${lines} lines`);
+  const userClaudePath = resolve(MERGED_DIR, 'user-CLAUDE.md');
+  if (existsSync(userClaudePath)) {
+    const lines = readFileSync(userClaudePath, 'utf-8').split('\n').length;
+    kv('user CLAUDE.md', `${GREEN}✓${RESET} ${lines} lines`);
   } else {
-    kv('CLAUDE.md', '—');
+    kv('user CLAUDE.md', '—');
+  }
+
+  const claudeLocalPath = resolve(MERGED_DIR, 'CLAUDE.local.md');
+  if (existsSync(claudeLocalPath)) {
+    const lines = readFileSync(claudeLocalPath, 'utf-8').split('\n').length;
+    kv('CLAUDE.local.md', `${GREEN}✓${RESET} ${lines} lines`);
+  } else {
+    kv('CLAUDE.local.md', '—');
   }
 
   const kbDir = resolve(MERGED_DIR, 'discord-kb');

@@ -55,38 +55,47 @@ export async function runImport(paths?: Paths): Promise<void> {
       paths = getHostPaths(config, localHost);
     } else {
       warn('No localhost host configured. Specify paths manually or add a local host first.');
-      const claudeMd = await input({
-        message: 'Path to CLAUDE.md:',
-        default: '~/discord/CLAUDE.md',
+      const userClaudeMd = await input({
+        message: 'Path to user CLAUDE.md:',
+        default: '~/.claude/CLAUDE.md',
+      });
+      const claudeLocalMd = await input({
+        message: 'Path to CLAUDE.local.md:',
+        default: '~/discord/CLAUDE.local.md',
       });
       const kb = await input({ message: 'Path to KB directory:', default: '~/discord-kb' });
       const skills = await input({
         message: 'Path to skills directory:',
         default: '~/.claude/skills',
       });
-      paths = { claude_md: claudeMd, kb, skills };
+      paths = { user_claude_md: userClaudeMd, claude_local_md: claudeLocalMd, kb, skills };
     }
   }
 
   info('Checking for existing content to import...');
 
   // Resolve each path, letting user fix or skip missing ones
-  const claudeMdPath = await resolvePath('CLAUDE.md', paths.claude_md);
+  const userClaudePath = await resolvePath('user CLAUDE.md', paths.user_claude_md);
+  const claudeLocalPath = await resolvePath('CLAUDE.local.md', paths.claude_local_md);
   const kbPath = await resolvePath('KB directory', paths.kb);
   const skillsPath = await resolvePath('Skills directory', paths.skills);
 
   // Agent definitions from ~/.claude/agents/
   const agentsPath = resolve(homedir(), '.claude', 'agents');
 
-  const hasClaude = claudeMdPath && existsSync(claudeMdPath);
+  const hasUserClaude = userClaudePath && existsSync(userClaudePath);
+  const hasClaudeLocal = claudeLocalPath && existsSync(claudeLocalPath);
   const kbCount = kbPath ? countMdFiles(kbPath) : 0;
   const skillCount = skillsPath ? countSkills(skillsPath) : 0;
   const agentCount = existsSync(agentsPath) ? countMdFiles(agentsPath) : 0;
 
   // Report what was found
   console.log();
-  if (hasClaude) info(`  CLAUDE.md found at ${claudeMdPath}`);
-  else if (claudeMdPath) warn('  CLAUDE.md: skipped');
+  if (hasUserClaude) info(`  user CLAUDE.md found at ${userClaudePath}`);
+  else if (userClaudePath) warn('  user CLAUDE.md: skipped');
+
+  if (hasClaudeLocal) info(`  CLAUDE.local.md found at ${claudeLocalPath}`);
+  else if (claudeLocalPath) warn('  CLAUDE.local.md: skipped');
 
   if (kbCount > 0) info(`  KB: ${kbCount} files at ${kbPath}`);
   else if (kbPath) warn('  KB: no .md files found');
@@ -96,7 +105,7 @@ export async function runImport(paths?: Paths): Promise<void> {
 
   if (agentCount > 0) info(`  Agents: ${agentCount} agent definitions at ${agentsPath}`);
 
-  if (hasClaude || kbCount > 0 || skillCount > 0 || agentCount > 0) {
+  if (hasUserClaude || hasClaudeLocal || kbCount > 0 || skillCount > 0 || agentCount > 0) {
     const doImport = await confirm({
       message: 'Import found content into devsync?',
       default: true,
@@ -105,9 +114,14 @@ export async function runImport(paths?: Paths): Promise<void> {
     if (doImport) {
       mkdirSync(MERGED_DIR, { recursive: true });
 
-      if (hasClaude) {
-        copyFileSync(claudeMdPath, resolve(MERGED_DIR, 'CLAUDE.md'));
-        success('  Imported CLAUDE.md');
+      if (hasUserClaude) {
+        copyFileSync(userClaudePath, resolve(MERGED_DIR, 'user-CLAUDE.md'));
+        success('  Imported user CLAUDE.md');
+      }
+
+      if (hasClaudeLocal) {
+        copyFileSync(claudeLocalPath, resolve(MERGED_DIR, 'CLAUDE.local.md'));
+        success('  Imported CLAUDE.local.md');
       }
 
       if (kbCount > 0) {

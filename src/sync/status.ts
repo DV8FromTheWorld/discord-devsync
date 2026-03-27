@@ -26,12 +26,14 @@ export function status(): void {
     for (const host of readdirSync(REMOTES_DIR).sort()) {
       const hostDir = resolve(REMOTES_DIR, host);
 
-      const claudeFile = resolve(hostDir, 'CLAUDE.md');
-      if (existsSync(claudeFile)) {
-        const lines = readFileSync(claudeFile, 'utf-8').split('\n').length;
-        console.log(`  + ${host} CLAUDE.md: ${lines} lines`);
-      } else {
-        console.log(`  - ${host} CLAUDE.md: missing`);
+      for (const fname of ['user-CLAUDE.md', 'CLAUDE.local.md'] as const) {
+        const claudeFile = resolve(hostDir, fname);
+        if (existsSync(claudeFile)) {
+          const lines = readFileSync(claudeFile, 'utf-8').split('\n').length;
+          console.log(`  + ${host} ${fname}: ${lines} lines`);
+        } else {
+          console.log(`  - ${host} ${fname}: missing`);
+        }
       }
 
       const kbDir = resolve(hostDir, 'discord-kb');
@@ -86,12 +88,14 @@ export function status(): void {
   console.log();
   console.log('Merged files:');
 
-  const claudeMerged = resolve(MERGED_DIR, 'CLAUDE.md');
-  if (existsSync(claudeMerged)) {
-    const lines = readFileSync(claudeMerged, 'utf-8').split('\n').length;
-    console.log(`  + merged/CLAUDE.md: ${lines} lines`);
-  } else {
-    console.log('  - No merged CLAUDE.md');
+  for (const fname of ['user-CLAUDE.md', 'CLAUDE.local.md'] as const) {
+    const mergedFile = resolve(MERGED_DIR, fname);
+    if (existsSync(mergedFile)) {
+      const lines = readFileSync(mergedFile, 'utf-8').split('\n').length;
+      console.log(`  + merged/${fname}: ${lines} lines`);
+    } else {
+      console.log(`  - No merged ${fname}`);
+    }
   }
 
   const kbMerged = resolve(MERGED_DIR, 'discord-kb');

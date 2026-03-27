@@ -59,7 +59,7 @@ export async function hostAdd(): Promise<void> {
   // Custom paths
   const platformDefaults = config.defaults[platform]?.paths;
   const customPaths = await confirm({
-    message: `Use default ${platform} paths? (claude_md: ${platformDefaults?.claude_md}, kb: ${platformDefaults?.kb})`,
+    message: `Use default ${platform} paths? (CLAUDE.local.md: ${platformDefaults?.claude_local_md}, kb: ${platformDefaults?.kb})`,
     default: true,
   });
 
@@ -71,11 +71,19 @@ export async function hostAdd(): Promise<void> {
 
   if (!customPaths) {
     hostConfig.paths = {};
-    const claudeMd = await input({
-      message: 'Path to CLAUDE.md:',
-      default: platformDefaults?.claude_md ?? '~/discord/CLAUDE.md',
+    const claudeLocalMd = await input({
+      message: 'Path to CLAUDE.local.md:',
+      default: platformDefaults?.claude_local_md ?? '~/discord/CLAUDE.local.md',
     });
-    if (claudeMd !== platformDefaults?.claude_md) hostConfig.paths.claude_md = claudeMd;
+    if (claudeLocalMd !== platformDefaults?.claude_local_md)
+      hostConfig.paths.claude_local_md = claudeLocalMd;
+
+    const userClaudeMd = await input({
+      message: 'Path to user CLAUDE.md:',
+      default: platformDefaults?.user_claude_md ?? '~/.claude/CLAUDE.md',
+    });
+    if (userClaudeMd !== platformDefaults?.user_claude_md)
+      hostConfig.paths.user_claude_md = userClaudeMd;
 
     const kb = await input({
       message: 'Path to KB directory:',

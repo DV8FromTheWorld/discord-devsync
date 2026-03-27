@@ -1,6 +1,6 @@
 # devsync
 
-Synchronizes developer environment config across multiple machines: Claude Code skills, knowledge base, CLAUDE.md, dotfiles, secrets, MCP servers, and permissions. Includes a "dream" process for periodic KB consolidation via Claude CLI.
+Synchronizes developer environment config across multiple machines: Claude Code skills, knowledge base, CLAUDE files, dotfiles, secrets, MCP servers, and permissions. Includes a "dream" process for periodic KB consolidation via Claude CLI.
 
 ## Install
 
@@ -28,7 +28,7 @@ Then it walks you through:
 2. Choosing machine role — hub-only (pure orchestrator) or hub + host (also receives content)
 3. Adding remote hosts with SSH connectivity testing
 4. Selecting layers for each host
-5. Optionally importing existing content (CLAUDE.md, KB, skills, MCP, permissions)
+5. Optionally importing existing content (CLAUDE files, KB, skills, MCP, permissions)
 
 The data directory is stored separately from the tool itself, so multiple users can share the same devsync installation. A pointer file at `~/.config/devsync/data-dir` tracks the location of each user's data.
 
@@ -42,7 +42,7 @@ devsync host add
 
 ```
 devsync init                      First-time setup wizard
-devsync import                    Import existing content (CLAUDE.md, KB, skills, MCP, permissions)
+devsync import                    Import existing content (CLAUDE files, KB, skills, MCP, permissions)
 devsync status                    Show config, hosts, and content overview
 devsync help                      Show help
 
@@ -92,7 +92,7 @@ Both pull and push run all hosts in parallel, with each host's operations also r
 pull (parallel)  ->  merge (sequential)  ->  push (parallel)  ->  commit
 ```
 
-- **Pull**: fetches CLAUDE.md, KB, skills, MCP config, and permissions from each host concurrently
+- **Pull**: fetches user CLAUDE.md, CLAUDE.local.md, KB, skills, MCP config, and permissions from each host concurrently
 - **Merge**: combines content from all hosts — single-source files are copied directly, multi-source conflicts use Claude CLI for intelligent merging
 - **Push**: uploads the merged state back to each host concurrently, filtered by layer config
 - **Commit**: stages and commits the merged state to git, then optionally pushes to the remote
@@ -110,7 +110,8 @@ Pull:
         + skema-snippets/
 
 Merge:
-  CLAUDE.md — identical, skipped
+  user CLAUDE.md — identical, skipped
+  CLAUDE.local.md — identical, skipped
   KB
     + api-rate-limits.md
     ~ troubleshooting-guide.md  +++--  (conflict resolved via Claude)
@@ -144,7 +145,8 @@ A host can subscribe to multiple layers. The effective config is the union of al
 
 | Content | Direction | Method |
 |---------|-----------|--------|
-| CLAUDE.md | bidirectional | rsync + Claude CLI merge |
+| User CLAUDE.md (`~/.claude/CLAUDE.md`) | bidirectional | rsync + Claude CLI merge |
+| CLAUDE.local.md (`{repo}/CLAUDE.local.md`) | bidirectional | rsync + Claude CLI merge |
 | Knowledge base | bidirectional | rsync + Claude CLI merge |
 | Skills | bidirectional | rsync + Claude CLI merge (layer-filtered on push) |
 | Journal entries | remotes -> hub | collect by date |
@@ -199,7 +201,8 @@ data/
 ├── dotfiles/                   # base/ + darwin/ + linux/ overlays
 ├── secrets/                    # Gitignored API keys (KEY=VALUE)
 ├── merged/                     # Canonical merged state (pushed to hosts)
-│   ├── CLAUDE.md
+│   ├── user-CLAUDE.md          # User-scoped CLAUDE.md (→ ~/.claude/CLAUDE.md)
+│   ├── CLAUDE.local.md         # Project-local CLAUDE.md (→ {repo}/CLAUDE.local.md)
 │   ├── discord-kb/
 │   │   ├── journal/            # Date-based journal entries
 │   │   └── curiosity/          # Generated investigation items
@@ -219,12 +222,14 @@ The config file (`config.yaml` in the data directory) has three sections:
 defaults:
   darwin:
     paths:
-      claude_md: ~/repos/discord/CLAUDE.md
+      user_claude_md: ~/.claude/CLAUDE.md
+      claude_local_md: ~/repos/discord/CLAUDE.local.md
       kb: ~/discord-kb
       skills: ~/.claude/skills
   linux:
     paths:
-      claude_md: ~/workspace/discord/CLAUDE.md
+      user_claude_md: ~/.claude/CLAUDE.md
+      claude_local_md: ~/workspace/discord/CLAUDE.local.md
       kb: ~/discord-kb
       skills: ~/.claude/skills
 
@@ -244,7 +249,7 @@ hosts:
     platform: linux
     layers: [core]
     paths:                          # Optional per-host path overrides
-      claude_md: ~/custom/path/CLAUDE.md
+      claude_local_md: ~/custom/path/CLAUDE.local.md
 ```
 
 The `auto_push` setting controls whether devsync pushes to the git remote after committing. When set to `ask` (the default), it prompts after each commit with options to push now, skip, or save a preference. Use `--push` on the command line to force a push regardless of the setting.

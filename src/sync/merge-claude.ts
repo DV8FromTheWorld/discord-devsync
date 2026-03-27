@@ -1,4 +1,4 @@
-import { existsSync, statSync, mkdirSync, readdirSync, copyFileSync, readFileSync } from 'fs';
+import { existsSync, statSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { resolve } from 'path';
 import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
@@ -6,26 +6,30 @@ import { debug, warn, error } from '../log.js';
 import { filesAreIdentical, generateFileDiffs } from './content-compare.js';
 import { type ContentChange, computeDiffStats, formatDiffBar } from './changes.js';
 
-function findRemoteClaudes(): string[] {
+function findRemoteFiles(remoteFilename: string): string[] {
   if (!existsSync(REMOTES_DIR)) return [];
   return readdirSync(REMOTES_DIR)
-    .map((host) => resolve(REMOTES_DIR, host, 'CLAUDE.md'))
-    .filter((f) => existsSync(f));
+    .map((host) => resolve(REMOTES_DIR, host, remoteFilename))
+    .filter((f) => existsSync(f) && statSync(f).isFile());
 }
 
-export function mergeClaudeMd(): ContentChange | null {
-  const remoteFiles = findRemoteClaudes();
-  const mergedFile = resolve(MERGED_DIR, 'CLAUDE.md');
+function mergeClaudeFile(
+  remoteFilename: string,
+  mergedFilename: string,
+  label: string,
+): ContentChange | null {
+  const remoteFiles = findRemoteFiles(remoteFilename);
+  const mergedFile = resolve(MERGED_DIR, mergedFilename);
   if (remoteFiles.length === 0) {
     if (existsSync(mergedFile)) {
-      debug('No remote CLAUDE.md files found. Keeping existing merged version.');
+      debug(`No remote ${label} files found. Keeping existing merged version.`);
     } else {
-      warn('No CLAUDE.md files found in remotes/ or merged/.');
+      warn(`No ${label} files found in remotes/ or merged/.`);
     }
     return null;
   }
 
-  debug(`Found ${remoteFiles.length} CLAUDE.md files`);
+  debug(`Found ${remoteFiles.length} ${label} files`);
   mkdirSync(MERGED_DIR, { recursive: true });
 
   let needMerge = true;
@@ -33,7 +37,7 @@ export function mergeClaudeMd(): ContentChange | null {
     const mergedMtime = statSync(mergedFile).mtimeMs;
     needMerge = remoteFiles.some((f) => statSync(f).mtimeMs > mergedMtime);
     if (!needMerge) {
-      debug('No remote CLAUDE.md files changed since last merge. Skipping.');
+      debug(`No remote ${label} files changed since last merge. Skipping.`);
       return null;
     }
   }
@@ -44,8 +48,8 @@ export function mergeClaudeMd(): ContentChange | null {
 
   // If all remotes have identical content, skip Claude merge
   if (filesAreIdentical(remoteFiles)) {
-    debug('All remote CLAUDE.md files are identical — copying without merge.');
-    copyFileSync(remoteFiles[0], mergedFile);
+    debug(`All remote ${label} files are identical — copying without merge.`);
+    writeFileSync(mergedFile, readFileSync(remoteFiles[0]));
   } else {
     const { basePath, baseLabel, diffs } = generateFileDiffs(
       existsSync(mergedFile) ? mergedFile : null,
@@ -58,7 +62,7 @@ export function mergeClaudeMd(): ContentChange | null {
       .join('\n\n');
 
     const prompt = [
-      'Merge CLAUDE.md files using diff analysis:',
+      `Merge ${label} files using diff analysis:`,
       '',
       `Base version: ${basePath} (from ${baseLabel} — read this file first)`,
       '',
@@ -70,14 +74,14 @@ export function mergeClaudeMd(): ContentChange | null {
       '- Remove duplicates, keep most comprehensive versions',
       '- Preserve unique insights from each host',
       '- Maintain proper markdown structure',
-      '- Write result to merged/CLAUDE.md',
+      `- Write result to merged/${mergedFilename}`,
       '',
       'You are running non-interactively in an automated pipeline.',
       'Do not ask for permission or confirmation — proceed directly.',
       'Print brief summary when done.',
     ].join('\n');
 
-    debug('Invoking Claude Code to merge CLAUDE.md files...');
+    debug(`Invoking Claude Code to merge ${label} files...`);
     try {
       execFileSync(
         'claude',
@@ -98,12 +102,12 @@ export function mergeClaudeMd(): ContentChange | null {
         },
       );
     } catch {
-      error('CLAUDE.md merge failed');
+      error(`${label} merge failed`);
       process.exit(1);
     }
 
     if (!existsSync(mergedFile)) {
-      error('Merged CLAUDE.md not created at expected location');
+      error(`Merged ${label} not created at expected location`);
       process.exit(1);
     }
   }
@@ -124,5 +128,13 @@ export function mergeClaudeMd(): ContentChange | null {
     }
   }
 
-  return { label: 'CLAUDE.md', files: [{ name: 'CLAUDE.md', type, diffBar }] };
+  return { label, files: [{ name: mergedFilename, type, diffBar }] };
+}
+
+export function mergeUserClaudeMd(): ContentChange | null {
+  return mergeClaudeFile('user-CLAUDE.md', 'user-CLAUDE.md', 'user CLAUDE.md');
+}
+
+export function mergeClaudeLocalMd(): ContentChange | null {
+  return mergeClaudeFile('CLAUDE.local.md', 'CLAUDE.local.md', 'CLAUDE.local.md');
 }

@@ -1,9 +1,11 @@
 import {
   copyFileSync,
   existsSync,
+  statSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  writeFileSync,
   readdirSync,
   rmSync,
 } from 'fs';
@@ -121,10 +123,54 @@ async function pushFilteredAgents(host: ResolvedHost): Promise<ContentChange | n
   }
 }
 
+async function pushSingleFile(
+  mergedFilename: string,
+  remoteDest: string,
+  label: string,
+  host: ResolvedHost,
+  result: HostChanges,
+  timings: string[],
+): Promise<void> {
+  const mergedFile = resolve(MERGED_DIR, mergedFilename);
+  if (!existsSync(mergedFile)) return;
+
+  const { result: r, ms } = await timed(label, () => rsync(mergedFile, remoteDest));
+  timings.push(`${label} ${ms}ms`);
+  if (r.ok) {
+    const changes = parseRsyncItemize(r.stdout);
+    if (changes.length > 0) {
+      const fc: FileChange = { name: mergedFilename, type: changes[0].type };
+      if (changes[0].type === '~') {
+        const cached = resolve(REMOTES_DIR, host.name, mergedFilename);
+        fc.diffBar = diffBarForFiles(cached, mergedFile);
+      }
+      result.changes.push({ label, files: [fc] });
+    }
+    // Update local remotes cache (use read+write to avoid ENOTSUP on macOS,
+    // and remove stale directory artifacts left by rsync for missing sources)
+    const cachedDir = resolve(REMOTES_DIR, host.name);
+    mkdirSync(cachedDir, { recursive: true });
+    const cachedPath = resolve(cachedDir, mergedFilename);
+    if (existsSync(cachedPath) && statSync(cachedPath).isDirectory()) {
+      rmSync(cachedPath, { recursive: true, force: true });
+    }
+    writeFileSync(cachedPath, readFileSync(mergedFile));
+  } else {
+    result.errors.push(`${label} failed`);
+    debug(`rsync ${label}: ${r.stderr.trim()}`);
+  }
+}
+
 async function ensureRemoteDirs(host: ResolvedHost): Promise<void> {
-  // dirname of claude_md path (e.g. ~/workspace/discord/ from ~/workspace/discord/CLAUDE.md)
-  const claudeMdDir = host.paths.claude_md.replace(/\/[^/]+$/, '');
-  const dirs = [claudeMdDir, host.paths.kb, host.paths.skills, '~/.claude', '~/.claude/agents'];
+  const userClaudeDir = host.paths.user_claude_md.replace(/\/[^/]+$/, '');
+  const localClaudeDir = host.paths.claude_local_md.replace(/\/[^/]+$/, '');
+  const dirs = [
+    userClaudeDir,
+    localClaudeDir,
+    host.paths.kb,
+    host.paths.skills,
+    '~/.claude/agents',
+  ];
   const mkdirCmd = dirs.map((d) => `mkdir -p ${d}`).join(' && ');
   await hostExec(host, mkdirCmd);
 }
@@ -156,36 +202,27 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
   // All push operations are independent after ensureRemoteDirs — run in parallel
   const ops: Array<Promise<void>> = [];
 
-  // CLAUDE.md
-  const claudeMd = resolve(MERGED_DIR, 'CLAUDE.md');
-  if (existsSync(claudeMd)) {
-    ops.push(
-      (async () => {
-        const { result: r, ms } = await timed('claude.md', () =>
-          rsync(claudeMd, remotePath(host, host.paths.claude_md)),
-        );
-        timings.push(`claude.md ${ms}ms`);
-        if (r.ok) {
-          const changes = parseRsyncItemize(r.stdout);
-          if (changes.length > 0) {
-            const fc: FileChange = { name: 'CLAUDE.md', type: changes[0].type };
-            if (changes[0].type === '~') {
-              const cached = resolve(REMOTES_DIR, host.name, 'CLAUDE.md');
-              fc.diffBar = diffBarForFiles(cached, claudeMd);
-            }
-            result.changes.push({ label: 'CLAUDE.md', files: [fc] });
-          }
-          // Update local remotes cache
-          const cachedDir = resolve(REMOTES_DIR, host.name);
-          mkdirSync(cachedDir, { recursive: true });
-          copyFileSync(claudeMd, resolve(cachedDir, 'CLAUDE.md'));
-        } else {
-          result.errors.push('CLAUDE.md failed');
-          debug(`rsync CLAUDE.md: ${r.stderr.trim()}`);
-        }
-      })(),
-    );
-  }
+  // User CLAUDE.md + CLAUDE.local.md
+  ops.push(
+    pushSingleFile(
+      'user-CLAUDE.md',
+      remotePath(host, host.paths.user_claude_md),
+      'user CLAUDE.md',
+      host,
+      result,
+      timings,
+    ),
+  );
+  ops.push(
+    pushSingleFile(
+      'CLAUDE.local.md',
+      remotePath(host, host.paths.claude_local_md),
+      'CLAUDE.local.md',
+      host,
+      result,
+      timings,
+    ),
+  );
 
   // KB (exclude journal/ — each host maintains its own journal entries)
   const kbDir = resolve(MERGED_DIR, 'discord-kb');

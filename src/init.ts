@@ -265,18 +265,21 @@ export async function init(): Promise<void> {
   info('(These apply to all hosts of that platform unless overridden per-host.)');
   console.log();
 
-  const darwinClaudeMd = await input({
-    message: 'macOS — Path to CLAUDE.md:',
-    default: '~/repos/discord/CLAUDE.md',
+  info('user CLAUDE.md (~/.claude/CLAUDE.md) uses the same path on all platforms.');
+  console.log();
+
+  const darwinClaudeLocal = await input({
+    message: 'macOS — Path to CLAUDE.local.md:',
+    default: '~/repos/discord/CLAUDE.local.md',
   });
   const darwinKb = await input({
     message: 'macOS — Path to KB directory:',
     default: '~/discord-kb',
   });
 
-  const linuxClaudeMd = await input({
-    message: 'Linux — Path to CLAUDE.md:',
-    default: '~/workspace/discord/CLAUDE.md',
+  const linuxClaudeLocal = await input({
+    message: 'Linux — Path to CLAUDE.local.md:',
+    default: '~/workspace/discord/CLAUDE.local.md',
   });
   const linuxKb = await input({
     message: 'Linux — Path to KB directory:',
@@ -287,14 +290,16 @@ export async function init(): Promise<void> {
     defaults: {
       darwin: {
         paths: {
-          claude_md: darwinClaudeMd,
+          user_claude_md: '~/.claude/CLAUDE.md',
+          claude_local_md: darwinClaudeLocal,
           kb: darwinKb,
           skills: '~/.claude/skills',
         },
       },
       linux: {
         paths: {
-          claude_md: linuxClaudeMd,
+          user_claude_md: '~/.claude/CLAUDE.md',
+          claude_local_md: linuxClaudeLocal,
           kb: linuxKb,
           skills: '~/.claude/skills',
         },

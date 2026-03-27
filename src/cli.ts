@@ -29,7 +29,7 @@ Usage: devsync <command> [subcommand] [options]
 
 Setup:
   init                   First-time setup wizard
-  import                 Import existing content (CLAUDE.md, KB, skills, MCP, permissions)
+  import                 Import existing content (CLAUDE files, KB, skills, MCP, permissions)
   status                 Show current configuration and content overview
   help                   Show this help message
 

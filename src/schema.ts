@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 const PathsSchema = z.object({
-  claude_md: z.string().min(1, 'claude_md path cannot be empty'),
+  user_claude_md: z.string().min(1, 'user_claude_md path cannot be empty'),
+  claude_local_md: z.string().min(1, 'claude_local_md path cannot be empty'),
   kb: z.string().min(1, 'kb path cannot be empty'),
   skills: z.string().min(1, 'skills path cannot be empty'),
 });

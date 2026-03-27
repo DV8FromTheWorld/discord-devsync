@@ -35,7 +35,8 @@ export const PLUGINS_CACHE_DIR = resolve(MERGED_DIR, '.claude', 'plugins', 'cach
 export type Platform = 'darwin' | 'linux';
 
 export interface Paths {
-  claude_md: string;
+  user_claude_md: string;
+  claude_local_md: string;
   kb: string;
   skills: string;
 }
@@ -106,6 +107,11 @@ export function loadConfig(): Config {
   const raw = readFileSync(CONFIG_PATH, 'utf-8');
   const parsed = parseYaml(raw);
 
+  // Auto-migrate from old single claude_md to user_claude_md + claude_local_md
+  if (migrateConfigPaths(parsed)) {
+    writeFileSync(CONFIG_PATH, stringifyYaml(parsed, { lineWidth: 120 }));
+  }
+
   const result = ConfigSchema.safeParse(parsed);
   if (!result.success) {
     throw new Error(
@@ -115,6 +121,43 @@ export function loadConfig(): Config {
 
   return result.data as Config;
 }
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function migrateConfigPaths(config: any): boolean {
+  let changed = false;
+
+  // Migrate platform defaults
+  for (const platform of ['darwin', 'linux']) {
+    const paths = config?.defaults?.[platform]?.paths;
+    if (paths && 'claude_md' in paths && !('user_claude_md' in paths)) {
+      const oldPath = paths.claude_md;
+      delete paths.claude_md;
+      paths.user_claude_md = '~/.claude/CLAUDE.md';
+      paths.claude_local_md = oldPath
+        ? oldPath.replace(/CLAUDE\.md$/, 'CLAUDE.local.md')
+        : platform === 'darwin'
+          ? '~/Projects/discord/discord/CLAUDE.local.md'
+          : '~/discord/CLAUDE.local.md';
+      changed = true;
+    }
+  }
+
+  // Migrate per-host path overrides
+  for (const hostName of Object.keys(config?.hosts ?? {})) {
+    const paths = config.hosts[hostName]?.paths;
+    if (paths && 'claude_md' in paths) {
+      const oldPath = paths.claude_md;
+      delete paths.claude_md;
+      if (oldPath) {
+        paths.claude_local_md = oldPath.replace(/CLAUDE\.md$/, 'CLAUDE.local.md');
+      }
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function saveConfig(config: Config): void {
   mkdirSync(DATA_DIR, { recursive: true });

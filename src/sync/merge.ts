@@ -2,7 +2,8 @@ import { existsSync } from 'fs';
 import ora from 'ora';
 import { REMOTES_DIR } from '../config.js';
 import { debug } from '../log.js';
-import { mergeClaudeMd } from './merge-claude.js';
+import { mergeUserClaudeMd, mergeClaudeLocalMd } from './merge-claude.js';
+import { migrateFromSingleClaudeMd } from './migrate-claude.js';
 import { mergeKbDirectories } from './merge-kb.js';
 import { mergeSkillsDirectories } from './merge-skills.js';
 import { mergeMcpServers } from './merge-mcp.js';
@@ -20,10 +21,15 @@ export async function merge(): Promise<void> {
   console.log('\nMerge:');
   const spinner = ora({ text: 'Merging...', prefixText: '  ' }).start();
 
+  migrateFromSingleClaudeMd();
+
   const allChanges: ContentChange[] = [];
 
-  const claudeResult = mergeClaudeMd();
-  allChanges.push(claudeResult ?? { label: 'CLAUDE.md' });
+  const userClaudeResult = mergeUserClaudeMd();
+  allChanges.push(userClaudeResult ?? { label: 'user CLAUDE.md' });
+
+  const localClaudeResult = mergeClaudeLocalMd();
+  allChanges.push(localClaudeResult ?? { label: 'CLAUDE.local.md' });
 
   const kbResult = mergeKbDirectories();
   allChanges.push(kbResult ?? { label: 'KB' });

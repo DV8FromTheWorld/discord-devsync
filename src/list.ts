@@ -17,9 +17,10 @@ export function listHosts(): void {
     console.log(`    hostname:  ${host.hostname}`);
     console.log(`    platform:  ${host.platform}`);
     console.log(`    layers:    ${host.layers.join(', ')}`);
-    console.log(`    claude_md: ${paths.claude_md}`);
-    console.log(`    kb:        ${paths.kb}`);
-    console.log(`    skills:    ${paths.skills}`);
+    console.log(`    user_claude_md:  ${paths.user_claude_md}`);
+    console.log(`    claude_local_md: ${paths.claude_local_md}`);
+    console.log(`    kb:              ${paths.kb}`);
+    console.log(`    skills:          ${paths.skills}`);
     console.log();
   }
 }
