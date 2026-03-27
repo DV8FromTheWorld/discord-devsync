@@ -29,9 +29,14 @@ import {
   snapshotTextFiles,
   diffBarForFiles,
   printHostChanges,
+  loadConflicts,
+  getConflictKeys,
 } from './changes.js';
 
-async function pushFilteredSkills(host: ResolvedHost): Promise<ContentChange | null> {
+async function pushFilteredSkills(
+  host: ResolvedHost,
+  conflictKeys: Set<string>,
+): Promise<ContentChange | null> {
   const mergedSkills = resolve(MERGED_DIR, '.claude', 'skills');
   if (!existsSync(mergedSkills)) return null;
 
@@ -39,10 +44,9 @@ async function pushFilteredSkills(host: ResolvedHost): Promise<ContentChange | n
     .filter((e) => e.isDirectory())
     .map((e) => e.name);
 
-  const hostSkills =
-    host.skills === 'all'
-      ? allSkills
-      : allSkills.filter((s) => (host.skills as Set<string>).has(s));
+  const hostSkills = (
+    host.skills === 'all' ? allSkills : allSkills.filter((s) => (host.skills as Set<string>).has(s))
+  ).filter((s) => !conflictKeys.has(`skills:${s}`));
 
   const tempDir = mkdtempSync(resolve(tmpdir(), 'devsync-skills-push-'));
   try {
@@ -73,7 +77,10 @@ async function pushFilteredSkills(host: ResolvedHost): Promise<ContentChange | n
   }
 }
 
-async function pushFilteredAgents(host: ResolvedHost): Promise<ContentChange | null> {
+async function pushFilteredAgents(
+  host: ResolvedHost,
+  conflictKeys: Set<string>,
+): Promise<ContentChange | null> {
   const mergedAgents = resolve(MERGED_DIR, '.claude', 'agents');
   if (!existsSync(mergedAgents)) return null;
 
@@ -81,10 +88,9 @@ async function pushFilteredAgents(host: ResolvedHost): Promise<ContentChange | n
     .filter((e) => e.isFile() && e.name.endsWith('.md'))
     .map((e) => e.name);
 
-  const hostAgents =
-    host.agents === 'all'
-      ? allAgents
-      : allAgents.filter((a) => (host.agents as Set<string>).has(a));
+  const hostAgents = (
+    host.agents === 'all' ? allAgents : allAgents.filter((a) => (host.agents as Set<string>).has(a))
+  ).filter((a) => !conflictKeys.has(`agents:${a}`));
 
   if (hostAgents.length === 0) return null;
 
@@ -130,9 +136,13 @@ async function pushSingleFile(
   host: ResolvedHost,
   result: HostChanges,
   timings: string[],
+  conflictKeys: Set<string>,
 ): Promise<void> {
   const mergedFile = resolve(MERGED_DIR, mergedFilename);
   if (!existsSync(mergedFile)) return;
+  // Skip if this file has an unresolved merge conflict
+  const conflictKey = label.toLowerCase().replace(/\s+/g, '-');
+  if (conflictKeys.has(conflictKey)) return;
 
   const { result: r, ms } = await timed(label, () => rsync(mergedFile, remoteDest));
   timings.push(`${label} ${ms}ms`);
@@ -179,6 +189,7 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
   const hostStart = performance.now();
   const result: HostChanges = { host: host.name, unreachable: false, changes: [], errors: [] };
   const timings: string[] = [];
+  const conflictKeys = getConflictKeys(loadConflicts());
 
   // Check connectivity first (skip for localhost)
   if (!host.isLocal) {
@@ -202,7 +213,7 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
   // All push operations are independent after ensureRemoteDirs — run in parallel
   const ops: Array<Promise<void>> = [];
 
-  // User CLAUDE.md + CLAUDE.local.md
+  // User CLAUDE.md + CLAUDE.local.md (skip if conflicted)
   ops.push(
     pushSingleFile(
       'user-CLAUDE.md',
@@ -211,6 +222,7 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
       host,
       result,
       timings,
+      conflictKeys,
     ),
   );
   ops.push(
@@ -221,20 +233,23 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
       host,
       result,
       timings,
+      conflictKeys,
     ),
   );
 
-  // KB (exclude journal/ — each host maintains its own journal entries)
+  // KB (exclude journal/ and any conflicted files)
   const kbDir = resolve(MERGED_DIR, 'discord-kb');
   if (existsSync(kbDir)) {
     ops.push(
       (async () => {
+        const kbExcludes = ['--delete', '--exclude', 'journal/'];
+        for (const key of conflictKeys) {
+          if (key.startsWith('kb:')) {
+            kbExcludes.push('--exclude', key.slice(3));
+          }
+        }
         const { result: r, ms } = await timed('kb', () =>
-          rsync(kbDir + '/', remotePath(host, host.paths.kb + '/'), [
-            '--delete',
-            '--exclude',
-            'journal/',
-          ]),
+          rsync(kbDir + '/', remotePath(host, host.paths.kb + '/'), kbExcludes),
         );
         timings.push(`kb ${ms}ms`);
         if (r.ok) {
@@ -266,7 +281,9 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
   ops.push(
     (async () => {
       try {
-        const { result: change, ms } = await timed('skills', () => pushFilteredSkills(host));
+        const { result: change, ms } = await timed('skills', () =>
+          pushFilteredSkills(host, conflictKeys),
+        );
         timings.push(`skills ${ms}ms`);
         if (change) result.changes.push(change);
       } catch {
@@ -279,7 +296,9 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
   ops.push(
     (async () => {
       try {
-        const { result: change, ms } = await timed('agents', () => pushFilteredAgents(host));
+        const { result: change, ms } = await timed('agents', () =>
+          pushFilteredAgents(host, conflictKeys),
+        );
         timings.push(`agents ${ms}ms`);
         if (change) result.changes.push(change);
       } catch {

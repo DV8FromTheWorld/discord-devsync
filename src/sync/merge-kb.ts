@@ -4,7 +4,16 @@ import { resolve, relative } from 'path';
 import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
 import { debug, warn } from '../log.js';
 import { filesAreIdentical, generateFileDiffs } from './content-compare.js';
-import { type ContentChange, type FileChange, computeDiffStats, formatDiffBar } from './changes.js';
+import {
+  type ContentChange,
+  type FileChange,
+  computeDiffStats,
+  formatDiffBar,
+  loadConflicts,
+  saveConflicts,
+  addConflict,
+  removeConflict,
+} from './changes.js';
 
 const EXCLUDED_PREFIXES = ['journal/', 'curiosity/'];
 
@@ -101,10 +110,12 @@ function mergeKbFileWithClaude(
         cwd: DATA_DIR,
         encoding: 'utf-8',
         stdio: 'pipe',
+        maxBuffer: 10 * 1024 * 1024,
       },
     );
     return true;
-  } catch {
+  } catch (e) {
+    warn(`  Claude merge failed for KB file '${kbFile}': ${(e as Error).message}`);
     return false;
   }
 }
@@ -118,9 +129,11 @@ export function mergeKbDirectories(): ContentChange | null {
   const allKbFiles = [...findAllKbFiles()].sort();
   debug(`Found ${allKbFiles.length} unique KB files (excluding journal/curiosity)`);
 
+  const conflicts = loadConflicts();
   const files: FileChange[] = [];
 
   for (const kbFile of allKbFiles) {
+    const conflictKey = `kb:${kbFile}`;
     const mergedFile = resolve(mergedKb, kbFile);
     const existed = existsSync(mergedFile);
     const oldContent = existed ? readFileSync(mergedFile, 'utf-8') : null;
@@ -145,21 +158,34 @@ export function mergeKbDirectories(): ContentChange | null {
       debug(`  ${kbFile}: updated by ${host} — copying`);
       mkdirSync(resolve(mergedFile, '..'), { recursive: true });
       copyFileSync(newerRemotes[0], mergedFile);
+      removeConflict(conflicts, conflictKey);
     } else {
       mkdirSync(resolve(mergedFile, '..'), { recursive: true });
       // If all remotes are identical, skip Claude merge
       if (filesAreIdentical(newerRemotes)) {
         debug(`  ${kbFile}: ${newerRemotes.length} hosts updated, content identical — copying`);
         copyFileSync(newerRemotes[0], mergedFile);
+        removeConflict(conflicts, conflictKey);
       } else if (mergeKbFileWithClaude(kbFile, mergedFile, newerRemotes)) {
         debug(`  Merged ${kbFile} from ${newerRemotes.length} sources`);
         claudeMerge = true;
+        removeConflict(conflicts, conflictKey);
       } else {
-        warn(`  Merge failed for ${kbFile} — using most recent version`);
-        const newest = newerRemotes.reduce((a, b) =>
-          statSync(a).mtimeMs > statSync(b).mtimeMs ? a : b,
-        );
-        copyFileSync(newest, mergedFile);
+        // Merge failed — do NOT overwrite merged/ to prevent data loss
+        const hostNames = newerRemotes.map((r) => relative(REMOTES_DIR, r).split('/')[0]);
+        addConflict(conflicts, {
+          key: conflictKey,
+          hosts: hostNames,
+          reason: 'Claude merge failed',
+          timestamp: new Date().toISOString(),
+        });
+        files.push({
+          name: kbFile,
+          type: '~',
+          conflict: true,
+          note: `Versions differ on: ${hostNames.join(', ')}. Resolve in merged/ or re-run sync to retry.`,
+        });
+        continue;
       }
     }
 
@@ -194,6 +220,7 @@ export function mergeKbDirectories(): ContentChange | null {
     files.push(fc);
   }
 
+  saveConflicts(conflicts);
   if (files.length === 0) return null;
   return { label: 'KB', files };
 }

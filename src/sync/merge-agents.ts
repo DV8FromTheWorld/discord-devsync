@@ -4,7 +4,16 @@ import { resolve, relative } from 'path';
 import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
 import { debug, warn } from '../log.js';
 import { filesAreIdentical, generateFileDiffs } from './content-compare.js';
-import { type ContentChange, type FileChange, computeDiffStats, formatDiffBar } from './changes.js';
+import {
+  type ContentChange,
+  type FileChange,
+  computeDiffStats,
+  formatDiffBar,
+  loadConflicts,
+  saveConflicts,
+  addConflict,
+  removeConflict,
+} from './changes.js';
 
 function findAllAgents(): Set<string> {
   const agents = new Set<string>();
@@ -76,10 +85,12 @@ function mergeAgentWithClaude(
         cwd: DATA_DIR,
         encoding: 'utf-8',
         stdio: 'pipe',
+        maxBuffer: 10 * 1024 * 1024,
       },
     );
     return true;
-  } catch {
+  } catch (e) {
+    warn(`  Claude merge failed for agent '${fileName}': ${(e as Error).message}`);
     return false;
   }
 }
@@ -93,9 +104,11 @@ export async function mergeAgents(): Promise<ContentChange | null> {
   const allAgents = [...findAllAgents()].sort();
   debug(`Found ${allAgents.length} unique agent files`);
 
+  const conflicts = loadConflicts();
   const files: FileChange[] = [];
 
   for (const fileName of allAgents) {
+    const conflictKey = `agents:${fileName}`;
     const mergedFile = resolve(mergedAgents, fileName);
     const existed = existsSync(mergedFile);
     const oldContent = existed ? readFileSync(mergedFile, 'utf-8') : null;
@@ -119,19 +132,32 @@ export async function mergeAgents(): Promise<ContentChange | null> {
       const host = relative(REMOTES_DIR, newerRemotes[0]).split('/')[0];
       debug(`  ${fileName}: updated by ${host} — copying`);
       copyFileSync(newerRemotes[0], mergedFile);
+      removeConflict(conflicts, conflictKey);
     } else {
       if (filesAreIdentical(newerRemotes)) {
         debug(`  ${fileName}: ${newerRemotes.length} hosts updated, content identical — copying`);
         copyFileSync(newerRemotes[0], mergedFile);
+        removeConflict(conflicts, conflictKey);
       } else if (mergeAgentWithClaude(fileName, mergedFile, newerRemotes)) {
         debug(`  Merged agent '${fileName}' from ${newerRemotes.length} sources`);
         claudeMerge = true;
+        removeConflict(conflicts, conflictKey);
       } else {
-        warn(`  Merge failed for agent '${fileName}' — using most recent`);
-        const newest = newerRemotes.reduce((a, b) =>
-          statSync(a).mtimeMs > statSync(b).mtimeMs ? a : b,
-        );
-        copyFileSync(newest, mergedFile);
+        // Merge failed — do NOT overwrite merged/ to prevent data loss
+        const hostNames = newerRemotes.map((r) => relative(REMOTES_DIR, r).split('/')[0]);
+        addConflict(conflicts, {
+          key: conflictKey,
+          hosts: hostNames,
+          reason: 'Claude merge failed',
+          timestamp: new Date().toISOString(),
+        });
+        files.push({
+          name: fileName,
+          type: '~',
+          conflict: true,
+          note: `Versions differ on: ${hostNames.join(', ')}. Resolve in merged/ or re-run sync to retry.`,
+        });
+        continue;
       }
     }
 
@@ -166,6 +192,7 @@ export async function mergeAgents(): Promise<ContentChange | null> {
     files.push(fc);
   }
 
+  saveConflicts(conflicts);
   if (files.length === 0) return null;
   return { label: 'agents', files };
 }

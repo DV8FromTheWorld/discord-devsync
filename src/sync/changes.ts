@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, readdirSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync, unlinkSync } from 'fs';
 import { resolve, relative } from 'path';
 import ora from 'ora';
+import { MERGED_DIR } from '../config.js';
 
 const GREEN = '\x1b[32m';
 const RED = '\x1b[31m';
@@ -15,6 +16,7 @@ export interface FileChange {
   type: '+' | '~';
   diffBar?: string; // pre-colored string like "+++--"
   note?: string; // e.g. "conflict resolved via Claude"
+  conflict?: boolean; // true if this is an unresolved merge conflict
 }
 
 export interface ContentChange {
@@ -28,6 +30,53 @@ export interface HostChanges {
   unreachable: boolean;
   changes: ContentChange[];
   errors: string[];
+}
+
+// ─── Merge conflict tracking ────────────────────────────────────
+
+export interface MergeConflict {
+  key: string; // e.g. "skills:experiment-triage", "kb:file.md", "agents:bot.md"
+  hosts: string[]; // which hosts had differing versions
+  reason: string; // why the merge failed
+  timestamp: string;
+}
+
+const CONFLICTS_PATH = resolve(MERGED_DIR, '.merge-conflicts.json');
+
+export function loadConflicts(): MergeConflict[] {
+  try {
+    if (!existsSync(CONFLICTS_PATH)) return [];
+    return JSON.parse(readFileSync(CONFLICTS_PATH, 'utf-8'));
+  } catch {
+    return [];
+  }
+}
+
+export function saveConflicts(conflicts: MergeConflict[]): void {
+  if (conflicts.length === 0) {
+    try {
+      unlinkSync(CONFLICTS_PATH);
+    } catch {
+      /* already gone */
+    }
+    return;
+  }
+  writeFileSync(CONFLICTS_PATH, JSON.stringify(conflicts, null, 2) + '\n');
+}
+
+export function addConflict(conflicts: MergeConflict[], conflict: MergeConflict): void {
+  const idx = conflicts.findIndex((c) => c.key === conflict.key);
+  if (idx >= 0) conflicts[idx] = conflict;
+  else conflicts.push(conflict);
+}
+
+export function removeConflict(conflicts: MergeConflict[], key: string): void {
+  const idx = conflicts.findIndex((c) => c.key === key);
+  if (idx >= 0) conflicts.splice(idx, 1);
+}
+
+export function getConflictKeys(conflicts: MergeConflict[]): Set<string> {
+  return new Set(conflicts.map((c) => c.key));
 }
 
 // ─── Rsync output parsing ───────────────────────────────────────
@@ -304,6 +353,13 @@ export function directoryDiffBar(
 const MAX_FILES_SHOWN = 3;
 
 function printFileChange(file: FileChange, indent: string): void {
+  if (file.conflict) {
+    console.log(`${indent}${RED}✖${RESET} ${file.name}  ${RED}CONFLICT${RESET}`);
+    if (file.note) {
+      console.log(`${indent}  ${DIM}${file.note}${RESET}`);
+    }
+    return;
+  }
   const marker = file.type === '+' ? `${GREEN}+${RESET}` : `${YELLOW}~${RESET}`;
   const bar = file.diffBar ? `  ${file.diffBar}` : '';
   const note = file.note ? `  ${DIM}(${file.note})${RESET}` : '';
