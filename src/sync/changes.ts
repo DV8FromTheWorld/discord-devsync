@@ -432,3 +432,36 @@ export function printMergeChanges(changes: ContentChange[]): void {
     }
   }
 }
+
+/** Print a single merge step result with an ora checkmark/warning, matching pull/push style. */
+export function printMergeStepResult(spinner: ReturnType<typeof ora>, change: ContentChange): void {
+  const hasChanges = (change.files && change.files.length > 0) || change.summary;
+  const hasConflict = change.files?.some((f) => f.conflict);
+
+  if (!hasChanges) {
+    spinner.succeed(`${change.label} — ${DIM}no changes${RESET}`);
+    return;
+  }
+
+  if (hasConflict) {
+    spinner.warn(change.label);
+  } else {
+    spinner.succeed(change.label);
+  }
+
+  if (change.summary) {
+    console.log(`      ${change.summary}`);
+    return;
+  }
+
+  if (change.files) {
+    const shown = change.files.slice(0, MAX_FILES_SHOWN);
+    const remaining = change.files.length - shown.length;
+    for (const file of shown) {
+      printFileChange(file, '      ');
+    }
+    if (remaining > 0) {
+      console.log(`      ${DIM}... and ${remaining} more${RESET}`);
+    }
+  }
+}

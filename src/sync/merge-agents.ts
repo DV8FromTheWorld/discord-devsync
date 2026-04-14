@@ -1,19 +1,10 @@
-import { existsSync, statSync, mkdirSync, readdirSync, copyFileSync, readFileSync } from 'fs';
-import { execFileSync } from 'child_process';
-import { resolve, relative } from 'path';
-import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
-import { debug, warn } from '../log.js';
-import { filesAreIdentical, generateFileDiffs } from './content-compare.js';
-import {
-  type ContentChange,
-  type FileChange,
-  computeDiffStats,
-  formatDiffBar,
-  loadConflicts,
-  saveConflicts,
-  addConflict,
-  removeConflict,
-} from './changes.js';
+import { existsSync, readdirSync, mkdirSync } from 'fs';
+import { resolve } from 'path';
+import { REMOTES_DIR, MERGED_DIR } from '../config.js';
+import { debug } from '../log.js';
+import { type ContentChange } from './changes.js';
+import { type DiffSet } from './content-compare.js';
+import { type MergeItem, fileMergeOps, mergeItems } from './merge-engine.js';
 
 function findAllAgents(): Set<string> {
   const agents = new Set<string>();
@@ -29,27 +20,25 @@ function findAllAgents(): Set<string> {
   return agents;
 }
 
-function mergeAgentWithClaude(
-  fileName: string,
-  mergedFile: string,
-  newerRemotes: string[],
-): boolean {
-  debug(`  Multiple hosts updated agent '${fileName}' — using Claude to merge`);
+function findAgentRemotes(fileName: string): string[] {
+  if (!existsSync(REMOTES_DIR)) return [];
+  const remotes: string[] = [];
+  for (const host of readdirSync(REMOTES_DIR)) {
+    const remoteFile = resolve(REMOTES_DIR, host, '.claude', 'agents', fileName);
+    if (existsSync(remoteFile)) remotes.push(remoteFile);
+  }
+  return remotes;
+}
 
-  const { basePath, baseLabel, diffs } = generateFileDiffs(
-    existsSync(mergedFile) ? mergedFile : null,
-    newerRemotes,
-    REMOTES_DIR,
-  );
-
+function buildPrompt(item: MergeItem, { basePath, baseLabel, diffs }: DiffSet): string {
   const diffSections = diffs
     .map(({ host, diff }) => `--- Host: ${host} ---\n${diff || '(no changes from base)'}`)
     .join('\n\n');
 
-  const prompt = [
+  return [
     `Merge agent definition files intelligently using diff analysis:`,
     '',
-    `Agent file: ${fileName}`,
+    `Agent file: ${item.name}`,
     `Base version: ${basePath} (from ${baseLabel} — read this file first)`,
     '',
     `Changes from each host (unified diff format):`,
@@ -61,38 +50,12 @@ function mergeAgentWithClaude(
     `- When hosts make conflicting changes, keep the most comprehensive version`,
     `- These are .md files that may contain YAML frontmatter`,
     `- Preserve YAML frontmatter fields from all versions`,
-    `- Write merged result to merged/.claude/agents/${fileName}`,
+    `- Write merged result to merged/.claude/agents/${item.name}`,
     '',
     'You are running non-interactively in an automated pipeline.',
     'Do not ask for permission or confirmation — proceed directly.',
     'Print brief summary of merge decisions.',
   ].join('\n');
-
-  try {
-    execFileSync(
-      'claude',
-      [
-        '--allowedTools',
-        'Read,Write,Glob',
-        '--permission-mode',
-        'dontAsk',
-        '--model',
-        'sonnet',
-        '-p',
-        prompt,
-      ],
-      {
-        cwd: DATA_DIR,
-        encoding: 'utf-8',
-        stdio: 'pipe',
-        maxBuffer: 10 * 1024 * 1024,
-      },
-    );
-    return true;
-  } catch (e) {
-    warn(`  Claude merge failed for agent '${fileName}': ${(e as Error).message}`);
-    return false;
-  }
 }
 
 export async function mergeAgents(): Promise<ContentChange | null> {
@@ -104,95 +67,18 @@ export async function mergeAgents(): Promise<ContentChange | null> {
   const allAgents = [...findAllAgents()].sort();
   debug(`Found ${allAgents.length} unique agent files`);
 
-  const conflicts = loadConflicts();
-  const files: FileChange[] = [];
+  const items: MergeItem[] = allAgents.map((fileName) => ({
+    name: fileName,
+    mergedPath: resolve(mergedAgents, fileName),
+    remotePaths: findAgentRemotes(fileName),
+    conflictKey: `agents:${fileName}`,
+  }));
 
-  for (const fileName of allAgents) {
-    const conflictKey = `agents:${fileName}`;
-    const mergedFile = resolve(mergedAgents, fileName);
-    const existed = existsSync(mergedFile);
-    const oldContent = existed ? readFileSync(mergedFile, 'utf-8') : null;
-    const mergedMtime = existed ? statSync(mergedFile).mtimeMs : 0;
-
-    const newerRemotes: string[] = [];
-    for (const host of readdirSync(REMOTES_DIR)) {
-      const remoteFile = resolve(REMOTES_DIR, host, '.claude', 'agents', fileName);
-      if (existsSync(remoteFile) && statSync(remoteFile).mtimeMs > mergedMtime) {
-        newerRemotes.push(remoteFile);
-      }
-    }
-
-    if (newerRemotes.length === 0) {
-      continue;
-    }
-
-    let claudeMerge = false;
-
-    if (newerRemotes.length === 1) {
-      const host = relative(REMOTES_DIR, newerRemotes[0]).split('/')[0];
-      debug(`  ${fileName}: updated by ${host} — copying`);
-      copyFileSync(newerRemotes[0], mergedFile);
-      removeConflict(conflicts, conflictKey);
-    } else {
-      if (filesAreIdentical(newerRemotes)) {
-        debug(`  ${fileName}: ${newerRemotes.length} hosts updated, content identical — copying`);
-        copyFileSync(newerRemotes[0], mergedFile);
-        removeConflict(conflicts, conflictKey);
-      } else if (mergeAgentWithClaude(fileName, mergedFile, newerRemotes)) {
-        debug(`  Merged agent '${fileName}' from ${newerRemotes.length} sources`);
-        claudeMerge = true;
-        removeConflict(conflicts, conflictKey);
-      } else {
-        // Merge failed — do NOT overwrite merged/ to prevent data loss
-        const hostNames = newerRemotes.map((r) => relative(REMOTES_DIR, r).split('/')[0]);
-        addConflict(conflicts, {
-          key: conflictKey,
-          hosts: hostNames,
-          reason: 'Claude merge failed',
-          timestamp: new Date().toISOString(),
-        });
-        files.push({
-          name: fileName,
-          type: '~',
-          conflict: true,
-          note: `Versions differ on: ${hostNames.join(', ')}. Resolve in merged/ or re-run sync to retry.`,
-        });
-        continue;
-      }
-    }
-
-    // Check if content actually changed
-    if (existed && oldContent) {
-      try {
-        const newContent = readFileSync(mergedFile, 'utf-8');
-        if (oldContent === newContent) continue;
-      } catch {
-        /* skip */
-      }
-    }
-
-    const fc: FileChange = { name: fileName, type: existed ? '~' : '+' };
-
-    if (existed && oldContent) {
-      try {
-        const newContent = readFileSync(mergedFile, 'utf-8');
-        const stats = computeDiffStats(oldContent, newContent);
-        if (stats.added > 0 || stats.removed > 0) {
-          fc.diffBar = formatDiffBar(stats.added, stats.removed);
-        }
-      } catch {
-        /* skip */
-      }
-    }
-
-    if (claudeMerge) {
-      fc.note = 'conflict resolved via Claude';
-    }
-
-    files.push(fc);
-  }
-
-  saveConflicts(conflicts);
-  if (files.length === 0) return null;
-  return { label: 'agents', files };
+  return mergeItems(items, {
+    label: 'agents',
+    ops: fileMergeOps,
+    allowedTools: 'Read,Write,Glob',
+    onClaudeFail: 'conflict',
+    buildPrompt,
+  });
 }

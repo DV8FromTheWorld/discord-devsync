@@ -1,21 +1,10 @@
-import { existsSync, statSync, mkdirSync, readdirSync } from 'fs';
-import { execFileSync } from 'child_process';
-import { resolve, relative } from 'path';
-import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
-import { debug, warn } from '../log.js';
-import { rsyncMirror } from '../ssh.js';
-import { dirsAreIdentical, generateDirDiffs } from './content-compare.js';
-import {
-  type ContentChange,
-  type FileChange,
-  type MergeConflict,
-  snapshotTextFiles,
-  directoryDiffBar,
-  loadConflicts,
-  saveConflicts,
-  addConflict,
-  removeConflict,
-} from './changes.js';
+import { existsSync, readdirSync, mkdirSync } from 'fs';
+import { resolve } from 'path';
+import { REMOTES_DIR, MERGED_DIR } from '../config.js';
+import { debug } from '../log.js';
+import { type ContentChange } from './changes.js';
+import { type DiffSet } from './content-compare.js';
+import { type MergeItem, dirMergeOps, mergeItems } from './merge-engine.js';
 
 function findAllSkills(): Set<string> {
   const skills = new Set<string>();
@@ -31,45 +20,25 @@ function findAllSkills(): Set<string> {
   return skills;
 }
 
-function newestMtime(dir: string): number {
-  let newest = 0;
-  function walk(current: string): void {
-    if (!existsSync(current)) return;
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const full = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else {
-        const mtime = statSync(full).mtimeMs;
-        if (mtime > newest) newest = mtime;
-      }
-    }
+function findSkillRemotes(skillName: string): string[] {
+  if (!existsSync(REMOTES_DIR)) return [];
+  const remotes: string[] = [];
+  for (const host of readdirSync(REMOTES_DIR)) {
+    const remoteSkill = resolve(REMOTES_DIR, host, '.claude', 'skills', skillName);
+    if (existsSync(remoteSkill)) remotes.push(remoteSkill);
   }
-  walk(dir);
-  return newest;
+  return remotes;
 }
 
-function mergeSkillWithClaude(
-  skillName: string,
-  mergedSkill: string,
-  newerRemotes: string[],
-): boolean {
-  debug(`  Multiple hosts updated skill '${skillName}' — using Claude to merge`);
-
-  const { basePath, baseLabel, diffs } = generateDirDiffs(
-    existsSync(mergedSkill) ? mergedSkill : null,
-    newerRemotes,
-    REMOTES_DIR,
-  );
-
+function buildPrompt(item: MergeItem, { basePath, baseLabel, diffs }: DiffSet): string {
   const diffSections = diffs
     .map(({ host, diff }) => `--- Host: ${host} ---\n${diff || '(no changes from base)'}`)
     .join('\n\n');
 
-  const prompt = [
+  return [
     `Merge Claude skill directories using diff analysis:`,
     '',
-    `Skill: ${skillName}`,
+    `Skill: ${item.name}`,
     `Base version: ${basePath} (from ${baseLabel} — read this directory first)`,
     '',
     `Changes from each host (unified diff format):`,
@@ -83,38 +52,12 @@ function mergeSkillWithClaude(
     `- Preserve all unique files from each version`,
     `- Add comments noting source host for conflicting sections`,
     `- Maintain proper skill structure and format`,
-    `- Write merged result to merged/.claude/skills/${skillName}/`,
+    `- Write merged result to merged/.claude/skills/${item.name}/`,
     '',
     'You are running non-interactively in an automated pipeline.',
     'Do not ask for permission or confirmation — proceed directly.',
     'Print brief summary when done.',
   ].join('\n');
-
-  try {
-    execFileSync(
-      'claude',
-      [
-        '--allowedTools',
-        'Read,Write,Glob',
-        '--permission-mode',
-        'dontAsk',
-        '--model',
-        'sonnet',
-        '-p',
-        prompt,
-      ],
-      {
-        cwd: DATA_DIR,
-        encoding: 'utf-8',
-        stdio: 'pipe',
-        maxBuffer: 10 * 1024 * 1024,
-      },
-    );
-    return true;
-  } catch (e) {
-    warn(`  Claude merge failed for skill '${skillName}': ${(e as Error).message}`);
-    return false;
-  }
 }
 
 export async function mergeSkillsDirectories(): Promise<ContentChange | null> {
@@ -126,66 +69,19 @@ export async function mergeSkillsDirectories(): Promise<ContentChange | null> {
   const allSkills = [...findAllSkills()].sort();
   debug(`Found ${allSkills.length} unique skills`);
 
-  const conflicts = loadConflicts();
-  const files: FileChange[] = [];
+  const items: MergeItem[] = allSkills.map((skillName) => ({
+    name: skillName,
+    mergedPath: resolve(mergedSkills, skillName),
+    remotePaths: findSkillRemotes(skillName),
+    conflictKey: `skills:${skillName}`,
+  }));
 
-  for (const skillName of allSkills) {
-    const conflictKey = `skills:${skillName}`;
-    const mergedSkill = resolve(mergedSkills, skillName);
-    const existed = existsSync(mergedSkill);
-    const oldSnapshot = existed ? snapshotTextFiles(mergedSkill) : new Map<string, string>();
-    const mergedMtime = existed ? newestMtime(mergedSkill) : 0;
-
-    const newerRemotes: string[] = [];
-    for (const host of readdirSync(REMOTES_DIR)) {
-      const remoteSkill = resolve(REMOTES_DIR, host, '.claude', 'skills', skillName);
-      if (existsSync(remoteSkill) && newestMtime(remoteSkill) > mergedMtime) {
-        newerRemotes.push(remoteSkill);
-      }
-    }
-
-    if (newerRemotes.length === 0) {
-      continue;
-    } else if (newerRemotes.length === 1) {
-      const host = relative(REMOTES_DIR, newerRemotes[0]).split('/')[0];
-      debug(`  ${skillName}: updated by ${host} — copying`);
-      mkdirSync(mergedSkill, { recursive: true });
-      await rsyncMirror(newerRemotes[0] + '/', mergedSkill + '/');
-      removeConflict(conflicts, conflictKey);
-    } else {
-      mkdirSync(mergedSkill, { recursive: true });
-      // If all remotes are identical, skip Claude merge
-      if (dirsAreIdentical(newerRemotes)) {
-        debug(`  ${skillName}: ${newerRemotes.length} hosts updated, content identical — copying`);
-        await rsyncMirror(newerRemotes[0] + '/', mergedSkill + '/');
-        removeConflict(conflicts, conflictKey);
-      } else if (mergeSkillWithClaude(skillName, mergedSkill, newerRemotes)) {
-        debug(`  Merged skill '${skillName}' from ${newerRemotes.length} sources`);
-        removeConflict(conflicts, conflictKey);
-      } else {
-        // Merge failed — do NOT overwrite merged/ to prevent data loss
-        const hostNames = newerRemotes.map((r) => relative(REMOTES_DIR, r).split('/')[0]);
-        addConflict(conflicts, {
-          key: conflictKey,
-          hosts: hostNames,
-          reason: 'Claude merge failed',
-          timestamp: new Date().toISOString(),
-        });
-        files.push({
-          name: skillName + '/',
-          type: '~',
-          conflict: true,
-          note: `Versions differ on: ${hostNames.join(', ')}. Resolve in merged/ or re-run sync to retry.`,
-        });
-        continue; // Skip diff bar — merged/ was not modified
-      }
-    }
-
-    const diffBar = existed ? directoryDiffBar(oldSnapshot, mergedSkill) : undefined;
-    files.push({ name: skillName + '/', type: existed ? '~' : '+', diffBar });
-  }
-
-  saveConflicts(conflicts);
-  if (files.length === 0) return null;
-  return { label: 'skills', files };
+  return mergeItems(items, {
+    label: 'skills',
+    ops: dirMergeOps,
+    allowedTools: 'Read,Write,Glob',
+    onClaudeFail: 'conflict',
+    nameSuffix: '/',
+    buildPrompt,
+  });
 }

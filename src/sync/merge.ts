@@ -11,7 +11,17 @@ import { mergeAgents } from './merge-agents.js';
 import { mergePlugins } from './merge-plugins.js';
 import { mergePermissions } from './merge-permissions.js';
 import { collectJournalEntries } from './collect-journal.js';
-import { type ContentChange, printMergeChanges } from './changes.js';
+import { type ContentChange, printMergeStepResult } from './changes.js';
+
+async function mergeStep(
+  label: string,
+  fn: () => ContentChange | null | Promise<ContentChange | null>,
+): Promise<ContentChange> {
+  const spinner = ora({ text: `${label}...`, prefixText: '  ' }).start();
+  const result = (await fn()) ?? { label };
+  printMergeStepResult(spinner, result);
+  return result;
+}
 
 export async function merge(): Promise<void> {
   if (!existsSync(REMOTES_DIR)) {
@@ -19,55 +29,35 @@ export async function merge(): Promise<void> {
   }
 
   console.log('\nMerge:');
-  const spinner = ora({ text: 'Merging...', prefixText: '  ' }).start();
 
   migrateFromSingleClaudeMd();
 
-  const allChanges: ContentChange[] = [];
+  let hasChanges = false;
+  function track(change: ContentChange): void {
+    if ((change.files && change.files.length > 0) || change.summary) hasChanges = true;
+  }
 
-  const userClaudeResult = mergeUserClaudeMd();
-  allChanges.push(userClaudeResult ?? { label: 'user CLAUDE.md' });
+  track(await mergeStep('user CLAUDE.md', mergeUserClaudeMd));
+  track(await mergeStep('CLAUDE.local.md', mergeClaudeLocalMd));
+  track(await mergeStep('knowledge base', mergeKbDirectories));
+  track(await mergeStep('journal entries', collectJournalEntries));
+  track(await mergeStep('skills', mergeSkillsDirectories));
+  track(await mergeStep('agents', mergeAgents));
 
-  const localClaudeResult = mergeClaudeLocalMd();
-  allChanges.push(localClaudeResult ?? { label: 'CLAUDE.local.md' });
-
-  const kbResult = mergeKbDirectories();
-  allChanges.push(kbResult ?? { label: 'KB' });
-
-  const journalResult = collectJournalEntries();
-  if (journalResult) allChanges.push(journalResult);
-
-  const skillsResult = await mergeSkillsDirectories();
-  allChanges.push(skillsResult ?? { label: 'skills' });
-
-  const agentsResult = await mergeAgents();
-  allChanges.push(agentsResult ?? { label: 'agents' });
-
-  const mcpResult = mergeMcpServers();
-  allChanges.push(mcpResult.changes ?? { label: 'MCP' });
-
-  const pluginsResult = mergePlugins();
-  allChanges.push(pluginsResult ?? { label: 'plugins' });
-
-  const permResult = mergePermissions();
-  allChanges.push(permResult ?? { label: 'permissions' });
-
-  spinner.stop();
-
-  // Print MCP discovery warnings before the change summary
-  if (mcpResult.warnings.length > 0) {
-    for (const w of mcpResult.warnings) {
-      ora({ prefixText: '  ' }).warn(w);
+  // MCP has extra warnings to surface
+  const mcpResult = await mergeStep('MCP servers', () => {
+    const r = mergeMcpServers();
+    if (r.warnings.length > 0) {
+      for (const w of r.warnings) {
+        ora({ prefixText: '  ' }).warn(w);
+      }
     }
-  }
+    return r.changes;
+  });
+  track(mcpResult);
 
-  const hasChanges = allChanges.some((c) => (c.files && c.files.length > 0) || c.summary);
-
-  if (hasChanges) {
-    printMergeChanges(allChanges);
-  } else {
-    console.log(`  Everything up to date.`);
-  }
+  track(await mergeStep('plugins', mergePlugins));
+  track(await mergeStep('permissions', mergePermissions));
 
   console.log();
   const label = hasChanges ? 'Merge complete' : 'Merge complete — no changes';
