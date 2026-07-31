@@ -1,5 +1,5 @@
 import { configExists, loadConfig, resolveAllHosts, resolveHost } from './config.js';
-import { error, setVerbose } from './log.js';
+import { error, setVerbose, initFileLog, debug } from './log.js';
 import { fetch } from './sync/fetch.js';
 import { merge } from './sync/merge.js';
 import { push } from './sync/push.js';
@@ -97,6 +97,10 @@ export async function run(args: string[]): Promise<void> {
     console.log(USAGE);
     return;
   }
+
+  // Every real command gets a log file, whether or not --verbose was passed.
+  initFileLog(args.join(' '));
+  debug(`devsync ${args.join(' ')}`);
 
   const command = args[0];
   const subcommand = args[1] ?? 'full';

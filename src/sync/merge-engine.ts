@@ -7,11 +7,10 @@ import {
   readFileSync,
   writeFileSync,
 } from 'fs';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process';
 import { resolve, relative } from 'path';
 import { REMOTES_DIR, DATA_DIR } from '../config.js';
-import { debug, warn, error } from '../log.js';
+import { debug, warn, error, logDetail, getLogFilePath } from '../log.js';
 import {
   filesAreIdentical,
   dirsAreIdentical,
@@ -33,8 +32,6 @@ import {
   addConflict,
   removeConflict,
 } from './changes.js';
-
-const execFileAsync = promisify(execFile);
 
 // ─── Strategy interfaces ───────────────────────────────────────
 
@@ -156,9 +153,21 @@ export interface MergeConfig {
 
 // ─── Claude CLI invocation ─────────────────────────────────────
 
-async function invokeClaudeMerge(prompt: string, allowedTools: string): Promise<boolean> {
-  try {
-    await execFileAsync(
+/**
+ * Run the Claude CLI to merge one item.
+ *
+ * Uses spawn rather than execFile so stdin can be closed: handed an open pipe it will
+ * never receive data on, the CLI stalls ~3s per invocation waiting for input. execFile's
+ * stdio option does not cover stdin, so it cannot express that.
+ *
+ * The prompt and all output land in the log file — a merge that fails is the one case
+ * where knowing what Claude actually said matters, and it used to be discarded.
+ */
+function invokeClaudeMerge(name: string, prompt: string, allowedTools: string): Promise<boolean> {
+  logDetail(`claude prompt: ${name}`, prompt);
+
+  return new Promise((resolvePromise) => {
+    const child = spawn(
       'claude',
       [
         '--allowedTools',
@@ -170,16 +179,35 @@ async function invokeClaudeMerge(prompt: string, allowedTools: string): Promise<
         '-p',
         prompt,
       ],
-      {
-        cwd: DATA_DIR,
-        encoding: 'utf-8',
-        maxBuffer: 10 * 1024 * 1024,
-      },
+      { cwd: DATA_DIR, stdio: ['ignore', 'pipe', 'pipe'] },
     );
-    return true;
-  } catch {
-    return false;
-  }
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf-8');
+    child.stderr.setEncoding('utf-8');
+    child.stdout.on('data', (chunk: string) => (stdout += chunk));
+    child.stderr.on('data', (chunk: string) => (stderr += chunk));
+
+    child.on('error', (err) => {
+      logDetail(`claude merge FAILED to launch: ${name}`, String(err));
+      resolvePromise(false);
+    });
+
+    child.on('close', (code, signal) => {
+      if (stdout) logDetail(`claude stdout: ${name}`, stdout);
+      if (stderr) logDetail(`claude stderr: ${name}`, stderr);
+      if (code === 0) {
+        resolvePromise(true);
+        return;
+      }
+      logDetail(
+        `claude merge FAILED: ${name}`,
+        `exit code: ${code}\nsignal: ${signal ?? '(none)'}`,
+      );
+      resolvePromise(false);
+    });
+  });
 }
 
 // ─── Core engine ───────────────────────────────────────────────
@@ -209,35 +237,56 @@ export async function mergeItems(
 
     if (newerRemotes.length === 0) continue;
 
+    // A newer mtime does not mean different content. rsync preserves times, so a re-fetch
+    // or a little clock skew can leave a byte-identical file looking newer than merged —
+    // and one of those alongside a genuinely edited host reads as a two-way conflict,
+    // forcing a Claude merge for what is really a straight copy. Compare content first.
+    const changedRemotes = existed
+      ? newerRemotes.filter((remote) => {
+          try {
+            return !ops.areIdentical([remote, mergedPath]);
+          } catch {
+            return true; // unreadable — let the merge path deal with it
+          }
+        })
+      : newerRemotes;
+
+    if (changedRemotes.length === 0) {
+      debug(`  ${name}: ${newerRemotes.length} remote(s) newer but content identical — skipping`);
+      continue;
+    }
+
     const oldSnapshot = existed ? ops.snapshot(mergedPath) : null;
     let claudeMerge = false;
 
     ops.ensureDir(mergedPath);
 
-    if (newerRemotes.length === 1) {
-      const host = relative(REMOTES_DIR, newerRemotes[0]).split('/')[0];
+    if (changedRemotes.length === 1) {
+      const host = relative(REMOTES_DIR, changedRemotes[0]).split('/')[0];
       debug(`  ${name}: updated by ${host} — copying`);
-      await ops.copy(newerRemotes[0], mergedPath);
+      await ops.copy(changedRemotes[0], mergedPath);
       if (conflictKey) removeConflict(conflicts, conflictKey);
-    } else if (ops.areIdentical(newerRemotes)) {
-      debug(`  ${name}: ${newerRemotes.length} hosts updated, content identical — copying`);
-      await ops.copy(newerRemotes[0], mergedPath);
+    } else if (ops.areIdentical(changedRemotes)) {
+      debug(`  ${name}: ${changedRemotes.length} hosts updated, content identical — copying`);
+      await ops.copy(changedRemotes[0], mergedPath);
       if (conflictKey) removeConflict(conflicts, conflictKey);
     } else {
       // Multi-way conflict — invoke Claude
-      const diffs = ops.generateDiffs(existed ? mergedPath : null, newerRemotes, REMOTES_DIR);
+      const diffs = ops.generateDiffs(existed ? mergedPath : null, changedRemotes, REMOTES_DIR);
       const prompt = buildPrompt(item, diffs);
 
       debug(`  Invoking Claude to merge ${name}...`);
-      const success = await invokeClaudeMerge(prompt, allowedTools);
+      const success = await invokeClaudeMerge(name, prompt, allowedTools);
 
       if (!success) {
+        const hostNames = changedRemotes.map((r) => relative(REMOTES_DIR, r).split('/')[0]);
         if (onClaudeFail === 'exit') {
-          error(`${label} merge failed for ${name}`);
+          error(`${label} merge failed for ${name} (hosts: ${hostNames.join(', ')})`);
+          const logPath = getLogFilePath();
+          if (logPath) error(`Claude output recorded in ${logPath}`);
           process.exit(1);
         }
         // Soft failure — record conflict, don't overwrite merged/
-        const hostNames = newerRemotes.map((r) => relative(REMOTES_DIR, r).split('/')[0]);
         if (conflictKey) {
           addConflict(conflicts, {
             key: conflictKey,
@@ -258,7 +307,7 @@ export async function mergeItems(
 
       claudeMerge = true;
       if (conflictKey) removeConflict(conflicts, conflictKey);
-      debug(`  Merged ${name} from ${newerRemotes.length} sources`);
+      debug(`  Merged ${name} from ${changedRemotes.length} sources`);
     }
 
     // Check if content actually changed
