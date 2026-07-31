@@ -24,6 +24,7 @@ The setup wizard first asks how to set up your data directory:
 - **Use existing directory** — points to a data directory already on disk
 
 Then it walks you through:
+
 1. Configuring default paths per platform (macOS / Linux)
 2. Choosing machine role — hub-only (pure orchestrator) or hub + host (also receives content)
 3. Adding remote hosts with SSH connectivity testing
@@ -143,17 +144,17 @@ A host can subscribe to multiple layers. The effective config is the union of al
 
 ### What syncs
 
-| Content | Direction | Method |
-|---------|-----------|--------|
-| User CLAUDE.md (`~/.claude/CLAUDE.md`) | bidirectional | rsync + Claude CLI merge |
-| CLAUDE.local.md (`{repo}/CLAUDE.local.md`) | bidirectional | rsync + Claude CLI merge |
-| Knowledge base | bidirectional | rsync + Claude CLI merge |
-| Skills | bidirectional | rsync + Claude CLI merge (layer-filtered on push) |
-| Journal entries | remotes -> hub | collect by date |
-| Dotfiles | hub -> remotes | base + platform overlay |
-| Secrets | hub -> remotes | rsync (gitignored) |
-| MCP servers | bidirectional | JSON patch on `~/.claude.json` (layer-filtered on push) |
-| Permissions | bidirectional | JSON patch on `~/.claude/settings.json` |
+| Content                                    | Direction      | Method                                                  |
+| ------------------------------------------ | -------------- | ------------------------------------------------------- |
+| User CLAUDE.md (`~/.claude/CLAUDE.md`)     | bidirectional  | rsync + Claude CLI merge                                |
+| CLAUDE.local.md (`{repo}/CLAUDE.local.md`) | bidirectional  | rsync + Claude CLI merge                                |
+| Knowledge base                             | bidirectional  | rsync + Claude CLI merge                                |
+| Skills                                     | bidirectional  | rsync + Claude CLI merge (layer-filtered on push)       |
+| Journal entries                            | remotes -> hub | collect by date                                         |
+| Dotfiles                                   | hub -> remotes | base + platform overlay                                 |
+| Secrets                                    | hub -> remotes | rsync (gitignored)                                      |
+| MCP servers                                | bidirectional  | JSON patch on `~/.claude.json` (layer-filtered on push) |
+| Permissions                                | bidirectional  | JSON patch on `~/.claude/settings.json`                 |
 
 **MCP servers** and **permissions** are stored in Claude Code's native JSON format. On fetch, devsync extracts the relevant fields from the remote's config files. On push, it patches them back in — preserving all other settings. MCP servers are filtered by layer; permissions are pushed to all hosts.
 
@@ -186,6 +187,7 @@ Dream runs are logged to `dream_log/YYYY-MM-DD.md` within the data directory for
 ### Directory layout
 
 **Tool** (shared, installed once):
+
 ```
 devsync/
 ├── src/                        # Tool code
@@ -195,6 +197,7 @@ devsync/
 ```
 
 **Data directory** (`~/.config/devsync/data/` by default, separate git repo):
+
 ```
 data/
 ├── config.yaml                 # Host + layer definitions
@@ -236,19 +239,19 @@ defaults:
 layers:
   core:
     description: Base development config
-    skills: all           # 'all' or list of skill names
-    mcp: [buildkite]      # 'all' or list of server names
+    skills: all # 'all' or list of skill names
+    mcp: [buildkite] # 'all' or list of server names
     dotfiles: true
     secrets: true
 
-auto_push: ask                    # 'ask' (default), 'always', or 'never'
+auto_push: ask # 'ask' (default), 'always', or 'never'
 
 hosts:
   devbox-1:
-    hostname: devbox-1.internal    # SSH hostname or 'localhost'
+    hostname: devbox-1.internal # SSH hostname or 'localhost'
     platform: linux
     layers: [core]
-    paths:                          # Optional per-host path overrides
+    paths: # Optional per-host path overrides
       claude_local_md: ~/custom/path/CLAUDE.local.md
 ```
 

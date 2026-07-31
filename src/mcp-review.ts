@@ -1,15 +1,16 @@
-import { existsSync, readFileSync, readdirSync } from 'fs';
-import { resolve } from 'path';
 import { select } from '@inquirer/prompts';
+import { existsSync, readdirSync, readFileSync } from 'fs';
+import { resolve } from 'path';
+
 import {
-  REMOTES_DIR,
-  loadMcpServers,
-  saveMcpServers,
   loadMcpExclude,
-  saveMcpExclude,
+  loadMcpServers,
   type McpServer,
+  REMOTES_DIR,
+  saveMcpExclude,
+  saveMcpServers,
 } from './config.js';
-import { info, success, warn } from './log.js';
+import { info, success } from './log.js';
 
 interface DiscoveredServer {
   name: string;
@@ -22,18 +23,24 @@ function findDiscoveredServers(): DiscoveredServer[] {
   const excluded = new Set(loadMcpExclude());
   const discovered: DiscoveredServer[] = [];
 
-  if (!existsSync(REMOTES_DIR)) return discovered;
+  if (!existsSync(REMOTES_DIR)) {
+    return discovered;
+  }
 
   const seen = new Set<string>();
   for (const host of readdirSync(REMOTES_DIR)) {
     const mcpFile = resolve(REMOTES_DIR, host, 'mcp-servers.json');
-    if (!existsSync(mcpFile)) continue;
+    if (!existsSync(mcpFile)) {
+      continue;
+    }
 
     try {
       const raw = readFileSync(mcpFile, 'utf-8');
       const servers = JSON.parse(raw) as Record<string, McpServer>;
       for (const [name, server] of Object.entries(servers)) {
-        if (name in existing || excluded.has(name) || seen.has(name)) continue;
+        if (name in existing || excluded.has(name) || seen.has(name)) {
+          continue;
+        }
         seen.add(name);
         discovered.push({ name, host, server });
       }
@@ -63,7 +70,9 @@ export async function mcpReview(): Promise<void> {
   for (const d of discovered) {
     const type = d.server.type;
     const detail =
-      type === 'http' || type === 'sse' ? d.server.url : `${d.server.command} ${(d.server.args ?? []).join(' ')}`;
+      type === 'http' || type === 'sse'
+        ? d.server.url
+        : `${d.server.command} ${(d.server.args ?? []).join(' ')}`;
 
     console.log(`  ${d.name}`);
     console.log(`    type: ${type}`);

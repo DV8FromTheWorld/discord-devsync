@@ -1,9 +1,10 @@
 import ora from 'ora';
+
 import type { ResolvedHost } from '../config.js';
 
 export async function timed<T>(
   _label: string,
-  fn: () => Promise<T>,
+  fn: () => Promise<T>
 ): Promise<{ result: T; ms: number }> {
   const start = performance.now();
   const result = await fn();
@@ -14,7 +15,7 @@ export async function runParallel<T extends { host: string; unreachable: boolean
   label: string,
   hosts: ResolvedHost[],
   operation: (host: ResolvedHost) => Promise<T>,
-  printResult: (result: T) => void,
+  printResult: (result: T) => void
 ): Promise<T[]> {
   if (hosts.length === 0) {
     console.log('No hosts configured.');
@@ -42,13 +43,13 @@ export async function runParallel<T extends { host: string; unreachable: boolean
       completed++;
       results.push(result);
       updateSpinner();
-    }),
+    })
   );
 
   spinner.stop();
 
   // Print in original host order
-  const ordered = hosts.map((h) => results.find((r) => r.host === h.name)!);
+  const ordered = hosts.flatMap((h) => results.find((r) => r.host === h.name) ?? []);
   for (const result of ordered) {
     printResult(result);
   }

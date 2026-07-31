@@ -1,6 +1,8 @@
 import { appendFileSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
 import { resolve } from 'path';
+
 import { DATA_DIR } from './config.js';
+import { hasText } from './text.js';
 
 const RESET = '\x1b[0m';
 const GREEN = '\x1b[32m';
@@ -24,7 +26,9 @@ export function setLogLevel(level: LogLevel): void {
 }
 
 export function setVerbose(v: boolean): void {
-  if (v) _level = 'debug';
+  if (v) {
+    _level = 'debug';
+  }
 }
 
 export function isVerbose(): boolean {
@@ -44,6 +48,7 @@ function shouldLog(level: LogLevel): boolean {
 
 const LOGS_DIR = resolve(DATA_DIR, 'logs');
 const MAX_LOG_FILES = 20;
+// eslint-disable-next-line no-control-regex -- \x1b is the ANSI escape we are stripping
 const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
 
 let logFilePath: string | null = null;
@@ -53,7 +58,9 @@ function stripAnsi(text: string): string {
 }
 
 function appendToLog(text: string): void {
-  if (!logFilePath) return;
+  if (!hasText(logFilePath)) {
+    return;
+  }
   try {
     appendFileSync(logFilePath, text);
   } catch {
@@ -85,7 +92,9 @@ function pruneOldLogs(): void {
  * Safe to call more than once; the first call wins.
  */
 export function initFileLog(commandLine: string): string | null {
-  if (logFilePath) return logFilePath;
+  if (hasText(logFilePath)) {
+    return logFilePath;
+  }
   try {
     mkdirSync(LOGS_DIR, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -93,9 +102,9 @@ export function initFileLog(commandLine: string): string | null {
       .trim()
       .replace(/[^a-zA-Z0-9]+/g, '-')
       .replace(/^-|-$/g, '');
-    logFilePath = resolve(LOGS_DIR, `${stamp}${slug ? `-${slug}` : ''}.log`);
+    logFilePath = resolve(LOGS_DIR, `${stamp}${hasText(slug) ? `-${slug}` : ''}.log`);
     appendToLog(
-      `# devsync ${commandLine}\n# started ${new Date().toISOString()}\n# pid ${process.pid}\n\n`,
+      `# devsync ${commandLine}\n# started ${new Date().toISOString()}\n# pid ${process.pid}\n\n`
     );
     pruneOldLogs();
     return logFilePath;
@@ -114,7 +123,9 @@ export function getLogFilePath(): string | null {
  * traces. Never printed; only ever written to the log file.
  */
 export function logDetail(label: string, detail: string): void {
-  if (!logFilePath || !detail) return;
+  if (!hasText(logFilePath) || !hasText(detail)) {
+    return;
+  }
   const indented = stripAnsi(detail)
     .trimEnd()
     .split('\n')

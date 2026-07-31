@@ -1,7 +1,8 @@
 import { execFileSync } from 'child_process';
-import { createInterface } from 'readline';
 import ora from 'ora';
-import { DATA_DIR, saveConfig, type Config } from '../config.js';
+import { createInterface } from 'readline';
+
+import { type Config, DATA_DIR, saveConfig } from '../config.js';
 
 export function commit(): void {
   console.log('\nCommit:');
@@ -43,7 +44,8 @@ function countUnpushed(): number | null {
       encoding: 'utf-8',
       stdio: 'pipe',
     });
-    return parseInt(result.trim(), 10) || 0;
+    const count = parseInt(result.trim(), 10);
+    return Number.isNaN(count) ? 0 : count;
   } catch {
     return null; // no upstream / remote configured
   }
@@ -85,7 +87,9 @@ export async function maybePush(config: Config, forcePush: boolean): Promise<voi
     ora({ prefixText: '  ' }).warn('No git remote configured — commits are local only');
     return;
   }
-  if (count === 0) return;
+  if (count === 0) {
+    return;
+  }
 
   const autoPush = config.auto_push ?? 'ask';
 
@@ -112,7 +116,7 @@ export async function maybePush(config: Config, forcePush: boolean): Promise<voi
     config.auto_push = 'never';
     saveConfig(config);
     ora({ prefixText: '  ' }).info(
-      'Auto-push disabled. Change auto_push in config.yaml to re-enable.',
+      'Auto-push disabled. Change auto_push in config.yaml to re-enable.'
     );
   } else if (choice === '' || choice === 'y' || choice === 'yes') {
     doPush(count);

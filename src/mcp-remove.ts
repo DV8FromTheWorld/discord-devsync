@@ -1,5 +1,5 @@
 import { loadMcpServers, saveMcpServers } from './config.js';
-import { success, error } from './log.js';
+import { error, success } from './log.js';
 
 export function mcpRemove(name: string): void {
   const servers = loadMcpServers();

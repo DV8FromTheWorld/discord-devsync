@@ -1,44 +1,46 @@
 import {
-  copyFileSync,
   existsSync,
-  statSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
-  writeFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
+  statSync,
+  writeFileSync,
 } from 'fs';
-import { resolve } from 'path';
 import { tmpdir } from 'os';
+import { resolve } from 'path';
+
 import { MERGED_DIR, REMOTES_DIR, type ResolvedHost } from '../config.js';
-import { rsync, rsyncMirror, remotePath, hostExec, checkConnection } from '../ssh.js';
-import { debug } from '../log.js';
 import { pushDotfiles } from '../env/dotfiles.js';
-import { pushSecrets } from '../env/secrets.js';
 import { reconcileMcp } from '../env/mcp.js';
 import { reconcilePermissions } from '../env/permissions.js';
 import { reconcilePlugins } from '../env/plugins.js';
-import { timed, runParallel } from './parallel.js';
+import { pushSecrets } from '../env/secrets.js';
+import { debug } from '../log.js';
+import { checkConnection, hostExec, remotePath, rsync, rsyncMirror } from '../ssh.js';
 import {
-  type HostChanges,
-  type ContentChange,
-  type FileChange,
-  parseRsyncItemize,
   aggregateToDirectories,
-  snapshotTextFiles,
+  type ContentChange,
   diffBarForFiles,
-  printHostChanges,
-  loadConflicts,
+  type FileChange,
   getConflictKeys,
+  type HostChanges,
+  loadConflicts,
+  parseRsyncItemize,
+  printHostChanges,
+  snapshotTextFiles,
 } from './changes.js';
+import { runParallel, timed } from './parallel.js';
 
 async function pushFilteredSkills(
   host: ResolvedHost,
-  conflictKeys: Set<string>,
+  conflictKeys: Set<string>
 ): Promise<ContentChange | null> {
   const mergedSkills = resolve(MERGED_DIR, '.claude', 'skills');
-  if (!existsSync(mergedSkills)) return null;
+  if (!existsSync(mergedSkills)) {
+    return null;
+  }
 
   const allSkills = readdirSync(mergedSkills, { withFileTypes: true })
     .filter((e) => e.isDirectory())
@@ -61,14 +63,18 @@ async function pushFilteredSkills(
     const oldSkillFiles = snapshotTextFiles(cachedSkillsDir);
 
     const r = await rsyncMirror(tempDir + '/', remotePath(host, host.paths.skills + '/'));
-    if (!r.ok) return null;
+    if (!r.ok) {
+      return null;
+    }
 
     // Update local remotes cache so next fetch doesn't report these as new
     mkdirSync(cachedSkillsDir, { recursive: true });
     await rsyncMirror(tempDir + '/', cachedSkillsDir + '/');
 
     const rsyncChanges = parseRsyncItemize(r.stdout);
-    if (rsyncChanges.length === 0) return null;
+    if (rsyncChanges.length === 0) {
+      return null;
+    }
 
     const files = aggregateToDirectories(rsyncChanges, tempDir, oldSkillFiles);
     return files.length > 0 ? { label: 'skills', files } : null;
@@ -79,10 +85,12 @@ async function pushFilteredSkills(
 
 async function pushFilteredAgents(
   host: ResolvedHost,
-  conflictKeys: Set<string>,
+  conflictKeys: Set<string>
 ): Promise<ContentChange | null> {
   const mergedAgents = resolve(MERGED_DIR, '.claude', 'agents');
-  if (!existsSync(mergedAgents)) return null;
+  if (!existsSync(mergedAgents)) {
+    return null;
+  }
 
   const allAgents = readdirSync(mergedAgents, { withFileTypes: true })
     .filter((e) => e.isFile() && e.name.endsWith('.md'))
@@ -92,7 +100,9 @@ async function pushFilteredAgents(
     host.agents === 'all' ? allAgents : allAgents.filter((a) => (host.agents as Set<string>).has(a))
   ).filter((a) => !conflictKeys.has(`agents:${a}`));
 
-  if (hostAgents.length === 0) return null;
+  if (hostAgents.length === 0) {
+    return null;
+  }
 
   const tempDir = mkdtempSync(resolve(tmpdir(), 'devsync-agents-push-'));
   try {
@@ -103,7 +113,9 @@ async function pushFilteredAgents(
     }
 
     const r = await rsyncMirror(tempDir + '/', remotePath(host, '~/.claude/agents/'));
-    if (!r.ok) return null;
+    if (!r.ok) {
+      return null;
+    }
 
     // Update local remotes cache so next fetch doesn't report these as new
     const cachedAgentsDir = resolve(REMOTES_DIR, host.name, '.claude', 'agents');
@@ -111,7 +123,9 @@ async function pushFilteredAgents(
     await rsyncMirror(tempDir + '/', cachedAgentsDir + '/');
 
     const rsyncChanges = parseRsyncItemize(r.stdout);
-    if (rsyncChanges.length === 0) return null;
+    if (rsyncChanges.length === 0) {
+      return null;
+    }
 
     const files: FileChange[] = rsyncChanges.map((rc) => {
       const fc: FileChange = { name: rc.path, type: rc.type };
@@ -129,28 +143,43 @@ async function pushFilteredAgents(
   }
 }
 
-async function pushSingleFile(
-  mergedFilename: string,
-  remoteDest: string,
-  label: string,
-  host: ResolvedHost,
-  result: HostChanges,
-  timings: string[],
-  conflictKeys: Set<string>,
-): Promise<void> {
+interface PushFileArgs {
+  mergedFilename: string;
+  remoteDest: string;
+  label: string;
+  host: ResolvedHost;
+  result: HostChanges;
+  timings: string[];
+  conflictKeys: Set<string>;
+}
+
+async function pushSingleFile({
+  mergedFilename,
+  remoteDest,
+  label,
+  host,
+  result,
+  timings,
+  conflictKeys,
+}: PushFileArgs): Promise<void> {
   const mergedFile = resolve(MERGED_DIR, mergedFilename);
-  if (!existsSync(mergedFile)) return;
+  if (!existsSync(mergedFile)) {
+    return;
+  }
   // Skip if this file has an unresolved merge conflict
   const conflictKey = label.toLowerCase().replace(/\s+/g, '-');
-  if (conflictKeys.has(conflictKey)) return;
+  if (conflictKeys.has(conflictKey)) {
+    return;
+  }
 
   const { result: r, ms } = await timed(label, () => rsync(mergedFile, remoteDest));
   timings.push(`${label} ${ms}ms`);
   if (r.ok) {
     const changes = parseRsyncItemize(r.stdout);
-    if (changes.length > 0) {
-      const fc: FileChange = { name: mergedFilename, type: changes[0].type };
-      if (changes[0].type === '~') {
+    const firstChange = changes[0];
+    if (firstChange !== undefined) {
+      const fc: FileChange = { name: mergedFilename, type: firstChange.type };
+      if (firstChange.type === '~') {
         const cached = resolve(REMOTES_DIR, host.name, mergedFilename);
         fc.diffBar = diffBarForFiles(cached, mergedFile);
       }
@@ -215,26 +244,26 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
 
   // User CLAUDE.md + CLAUDE.local.md (skip if conflicted)
   ops.push(
-    pushSingleFile(
-      'user-CLAUDE.md',
-      remotePath(host, host.paths.user_claude_md),
-      'user CLAUDE.md',
+    pushSingleFile({
+      mergedFilename: 'user-CLAUDE.md',
+      remoteDest: remotePath(host, host.paths.user_claude_md),
+      label: 'user CLAUDE.md',
       host,
       result,
       timings,
       conflictKeys,
-    ),
+    })
   );
   ops.push(
-    pushSingleFile(
-      'CLAUDE.local.md',
-      remotePath(host, host.paths.claude_local_md),
-      'CLAUDE.local.md',
+    pushSingleFile({
+      mergedFilename: 'CLAUDE.local.md',
+      remoteDest: remotePath(host, host.paths.claude_local_md),
+      label: 'CLAUDE.local.md',
       host,
       result,
       timings,
       conflictKeys,
-    ),
+    })
   );
 
   // KB (exclude journal/ and any conflicted files)
@@ -249,7 +278,7 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
           }
         }
         const { result: r, ms } = await timed('kb', () =>
-          rsync(kbDir + '/', remotePath(host, host.paths.kb + '/'), kbExcludes),
+          rsync(kbDir + '/', remotePath(host, host.paths.kb + '/'), kbExcludes)
         );
         timings.push(`kb ${ms}ms`);
         if (r.ok) {
@@ -273,7 +302,7 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
           result.errors.push('KB failed');
           debug(`rsync KB: ${r.stderr.trim()}`);
         }
-      })(),
+      })()
     );
   }
 
@@ -282,14 +311,16 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
     (async () => {
       try {
         const { result: change, ms } = await timed('skills', () =>
-          pushFilteredSkills(host, conflictKeys),
+          pushFilteredSkills(host, conflictKeys)
         );
         timings.push(`skills ${ms}ms`);
-        if (change) result.changes.push(change);
+        if (change) {
+          result.changes.push(change);
+        }
       } catch {
         result.errors.push('skills failed');
       }
-    })(),
+    })()
   );
 
   // Filtered agents
@@ -297,14 +328,16 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
     (async () => {
       try {
         const { result: change, ms } = await timed('agents', () =>
-          pushFilteredAgents(host, conflictKeys),
+          pushFilteredAgents(host, conflictKeys)
         );
         timings.push(`agents ${ms}ms`);
-        if (change) result.changes.push(change);
+        if (change) {
+          result.changes.push(change);
+        }
       } catch {
         result.errors.push('agents failed');
       }
-    })(),
+    })()
   );
 
   // Dotfiles
@@ -317,7 +350,7 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
         } catch {
           result.errors.push('dotfiles failed');
         }
-      })(),
+      })()
     );
   }
 
@@ -331,7 +364,7 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
         } catch {
           result.errors.push('secrets failed');
         }
-      })(),
+      })()
     );
   }
 
@@ -345,7 +378,7 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
         } catch {
           result.errors.push('MCP failed');
         }
-      })(),
+      })()
     );
   }
 
@@ -360,13 +393,15 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
           const permFile = resolve(REMOTES_DIR, host.name, 'permissions.json');
           let newCount = 0;
           try {
-            const merged = JSON.parse(
-              readFileSync(resolve(MERGED_DIR, 'permissions.json'), 'utf-8'),
+            const merged: unknown = JSON.parse(
+              readFileSync(resolve(MERGED_DIR, 'permissions.json'), 'utf-8')
             );
             if (Array.isArray(merged)) {
               if (existsSync(permFile)) {
-                const old = JSON.parse(readFileSync(permFile, 'utf-8'));
-                if (Array.isArray(old)) newCount = merged.length - old.length;
+                const old: unknown = JSON.parse(readFileSync(permFile, 'utf-8'));
+                if (Array.isArray(old)) {
+                  newCount = merged.length - old.length;
+                }
               } else {
                 newCount = merged.length;
               }
@@ -381,7 +416,7 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
       } catch {
         result.errors.push('settings failed');
       }
-    })(),
+    })()
   );
 
   // Plugin cache + installed metadata
@@ -396,7 +431,7 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
       } catch {
         result.errors.push('plugins failed');
       }
-    })(),
+    })()
   );
 
   await Promise.all(ops);

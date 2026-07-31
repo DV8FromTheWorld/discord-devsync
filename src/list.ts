@@ -1,4 +1,5 @@
-import { loadConfig, loadMcpServers, getHostPaths } from './config.js';
+import { getHostPaths, loadConfig, loadMcpServers } from './config.js';
+import { hasText, joinOrNone } from './text.js';
 
 export function listHosts(): void {
   const config = loadConfig();
@@ -37,16 +38,12 @@ export function listLayers(): void {
   console.log(`Layers (${layers.length}):\n`);
   for (const [name, layer] of layers) {
     console.log(`  ${name}`);
-    if (layer.description) console.log(`    ${layer.description}`);
-    console.log(
-      `    skills:   ${layer.skills === 'all' ? 'all' : (layer.skills ?? []).join(', ') || 'none'}`,
-    );
-    console.log(
-      `    agents:   ${layer.agents === 'all' ? 'all' : (layer.agents ?? []).join(', ') || 'none'}`,
-    );
-    console.log(
-      `    mcp:      ${layer.mcp === 'all' ? 'all' : (layer.mcp ?? []).join(', ') || 'none'}`,
-    );
+    if (hasText(layer.description)) {
+      console.log(`    ${layer.description}`);
+    }
+    console.log(`    skills:   ${layer.skills === 'all' ? 'all' : joinOrNone(layer.skills ?? [])}`);
+    console.log(`    agents:   ${layer.agents === 'all' ? 'all' : joinOrNone(layer.agents ?? [])}`);
+    console.log(`    mcp:      ${layer.mcp === 'all' ? 'all' : joinOrNone(layer.mcp ?? [])}`);
     console.log(`    dotfiles: ${layer.dotfiles ? 'yes' : 'no'}`);
     console.log(`    secrets:  ${layer.secrets ? 'yes' : 'no'}`);
     console.log();

@@ -1,23 +1,35 @@
-import { existsSync, mkdirSync, statSync, writeFileSync, readFileSync, appendFileSync, rmSync } from 'fs';
+import { checkbox, confirm, input, select } from '@inquirer/prompts';
 import { execFileSync } from 'child_process';
-import { resolve } from 'path';
-import { input, select, confirm, checkbox } from '@inquirer/prompts';
-import { stringify as stringifyYaml } from 'yaml';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
 import ora from 'ora';
-import { DEVSYNC_CONFIG_DIR, DATA_DIR_FILE, type Config, type Platform } from './config.js';
-import { info, success, error } from './log.js';
-import { checkConnection } from './ssh.js';
+import { resolve } from 'path';
+import { stringify as stringifyYaml } from 'yaml';
+
+import { type Config, DATA_DIR_FILE, DEVSYNC_CONFIG_DIR, type Platform } from './config.js';
 import { runImport } from './import.js';
+import { error, info, success } from './log.js';
+import { checkConnection } from './ssh.js';
+import { hasText } from './text.js';
 
 const DEFAULT_DATA_DIR = resolve(DEVSYNC_CONFIG_DIR, 'data');
 
 async function promptHost(
   layerNames: string[],
-  isLocal: boolean,
+  isLocal: boolean
 ): Promise<{ name: string; hostname: string; platform: Platform; layers: string[] } | null> {
   if (!isLocal) {
     const hostname = await input({ message: 'SSH hostname (e.g., my-box.coder):' });
-    if (!hostname) return null;
+    if (!hasText(hostname)) {
+      return null;
+    }
 
     // Test connectivity
     const testHost = { hostname, isLocal: false } as Parameters<typeof checkConnection>[0];
@@ -30,7 +42,9 @@ async function promptHost(
       });
       if (!retry) {
         const skip = await confirm({ message: 'Skip this host?', default: true });
-        if (skip) return null;
+        if (skip) {
+          return null;
+        }
       }
       connected = await checkConnection(testHost);
     }
@@ -115,7 +129,7 @@ async function setupDataDir(): Promise<string> {
 
   if (mode === 'git') {
     const url = await input({ message: 'Git repository URL:' });
-    if (!url) {
+    if (!hasText(url)) {
       error('No URL provided. Aborted.');
       process.exit(1);
     }
@@ -157,7 +171,7 @@ async function setupDataDir(): Promise<string> {
       });
       if (useSub) {
         const sub = await input({ message: 'Subfolder path (relative to repo root):' });
-        if (sub) {
+        if (hasText(sub)) {
           const subPath = resolve(dataDir, sub);
           if (!existsSync(subPath) || !statSync(subPath).isDirectory()) {
             error(`Subfolder not found: ${subPath}`);
@@ -175,7 +189,7 @@ async function setupDataDir(): Promise<string> {
 
   // mode === 'path'
   const customPath = await input({ message: 'Path to existing data directory:' });
-  if (!customPath) {
+  if (!hasText(customPath)) {
     error('No path provided. Aborted.');
     process.exit(1);
   }
@@ -374,7 +388,7 @@ export async function init(): Promise<void> {
     default: true,
   });
   if (doImport) {
-    const importPaths = localPlatform ? config.defaults[localPlatform]?.paths : undefined;
+    const importPaths = localPlatform !== null ? config.defaults[localPlatform]?.paths : undefined;
     await runImport(importPaths);
   }
 

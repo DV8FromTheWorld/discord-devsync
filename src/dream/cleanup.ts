@@ -1,8 +1,9 @@
 import { existsSync, readdirSync, unlinkSync } from 'fs';
 import { resolve } from 'path';
-import { MERGED_DIR, DREAM_LOG_DIR, type ResolvedHost } from '../config.js';
+
+import { DREAM_LOG_DIR, MERGED_DIR, type ResolvedHost } from '../config.js';
 import { info, success, warn } from '../log.js';
-import { hostExec, checkConnection } from '../ssh.js';
+import { checkConnection, hostExec } from '../ssh.js';
 
 const RETENTION_WEEKS = 4;
 
@@ -56,7 +57,9 @@ export async function cleanup(hosts: ResolvedHost[]): Promise<void> {
 
   // Clean remote journal entries
   for (const host of hosts) {
-    if (host.isLocal) continue;
+    if (host.isLocal) {
+      continue;
+    }
 
     const reachable = await checkConnection(host);
     if (!reachable) {
@@ -67,7 +70,7 @@ export async function cleanup(hosts: ResolvedHost[]): Promise<void> {
     const kbPath = host.paths.kb;
     const cmd = `find ${kbPath}/journal -name '*.md' -type f 2>/dev/null | while read f; do d=$(basename "$f" .md); [ "$d" \\< "${cutoffStr}" ] && rm "$f" && echo "deleted $f"; done`;
     const result = await hostExec(host, cmd);
-    if (result.ok && result.stdout.trim()) {
+    if (result.ok && result.stdout.trim() !== '') {
       const lines = result.stdout.trim().split('\n').length;
       info(`  ${host.name}: deleted ${lines} old remote journal entries`);
       deleted += lines;

@@ -1,9 +1,11 @@
-import { existsSync, readFileSync, writeFileSync, readdirSync } from 'fs';
-import { resolve } from 'path';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
+import { resolve } from 'path';
+
 import { DOTFILES_DIR, type ResolvedHost } from '../config.js';
-import { rsync, remotePath, hostExec } from '../ssh.js';
+import { hostExec, remotePath, rsync } from '../ssh.js';
+import { hasText } from '../text.js';
 
 const DEVSYNC_SOURCE_FILE = '.devsync.sh';
 
@@ -30,10 +32,12 @@ function assembleDevsyncSh(platform: string): string {
   const parts: string[] = ['# Managed by devsync — do not edit manually'];
 
   const base = readIfExists(resolve(DOTFILES_DIR, 'base', 'shell.sh'));
-  if (base) parts.push(base.trimEnd());
+  if (hasText(base)) {
+    parts.push(base.trimEnd());
+  }
 
   const platformFile = readIfExists(resolve(DOTFILES_DIR, platform, 'shell.sh'));
-  if (platformFile) {
+  if (hasText(platformFile)) {
     parts.push(`# platform: ${platform}`);
     parts.push(platformFile.trimEnd());
   }
@@ -47,18 +51,24 @@ function assembleDevsyncSh(platform: string): string {
 
 async function ensureSourcedInRcFile(host: ResolvedHost, shell: string): Promise<void> {
   const config = SOURCE_LINES[shell];
-  if (!config) return;
+  if (!config) {
+    return;
+  }
   await hostExec(
     host,
-    `grep -qF '${config.line}' ~/${config.rc} 2>/dev/null || printf '\\n${config.line}\\n' >> ~/${config.rc}`,
+    `grep -qF '${config.line}' ~/${config.rc} 2>/dev/null || printf '\\n${config.line}\\n' >> ~/${config.rc}`
   );
 }
 
 function assembleDotfile(filename: string, platform: string): string | null {
   const platformPath = resolve(DOTFILES_DIR, platform, filename);
   const basePath = resolve(DOTFILES_DIR, 'base', filename);
-  if (existsSync(platformPath)) return readFileSync(platformPath, 'utf-8');
-  if (existsSync(basePath)) return readFileSync(basePath, 'utf-8');
+  if (existsSync(platformPath)) {
+    return readFileSync(platformPath, 'utf-8');
+  }
+  if (existsSync(basePath)) {
+    return readFileSync(basePath, 'utf-8');
+  }
   return null;
 }
 
@@ -70,7 +80,7 @@ export async function pushDotfiles(host: ResolvedHost): Promise<void> {
     writeFileSync(resolve(tempDir, DEVSYNC_SOURCE_FILE), devsyncSh);
     await rsync(
       resolve(tempDir, DEVSYNC_SOURCE_FILE),
-      remotePath(host, `~/${DEVSYNC_SOURCE_FILE}`),
+      remotePath(host, `~/${DEVSYNC_SOURCE_FILE}`)
     );
 
     await ensureSourcedInRcFile(host, 'zsh');
@@ -82,18 +92,24 @@ export async function pushDotfiles(host: ResolvedHost): Promise<void> {
     const allDotfiles = new Set<string>();
     if (existsSync(baseDir)) {
       for (const f of readdirSync(baseDir)) {
-        if (f.startsWith('.') && f !== '.gitkeep') allDotfiles.add(f);
+        if (f.startsWith('.') && f !== '.gitkeep') {
+          allDotfiles.add(f);
+        }
       }
     }
     if (existsSync(platformDir)) {
       for (const f of readdirSync(platformDir)) {
-        if (f.startsWith('.') && f !== '.gitkeep') allDotfiles.add(f);
+        if (f.startsWith('.') && f !== '.gitkeep') {
+          allDotfiles.add(f);
+        }
       }
     }
 
     for (const dotfile of allDotfiles) {
       const content = assembleDotfile(dotfile, host.platform);
-      if (!content) continue;
+      if (!hasText(content)) {
+        continue;
+      }
       const tmpFile = resolve(tempDir, dotfile);
       writeFileSync(tmpFile, content);
       await rsync(tmpFile, remotePath(host, `~/${dotfile}`));

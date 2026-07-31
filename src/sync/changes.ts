@@ -1,7 +1,9 @@
-import { existsSync, readFileSync, readdirSync, writeFileSync, unlinkSync } from 'fs';
-import { resolve, relative } from 'path';
+import { existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import ora from 'ora';
+import { relative, resolve } from 'path';
+
 import { MERGED_DIR } from '../config.js';
+import { hasText } from '../text.js';
 
 const GREEN = '\x1b[32m';
 const RED = '\x1b[31m';
@@ -45,8 +47,10 @@ const CONFLICTS_PATH = resolve(MERGED_DIR, '.merge-conflicts.json');
 
 export function loadConflicts(): MergeConflict[] {
   try {
-    if (!existsSync(CONFLICTS_PATH)) return [];
-    return JSON.parse(readFileSync(CONFLICTS_PATH, 'utf-8'));
+    if (!existsSync(CONFLICTS_PATH)) {
+      return [];
+    }
+    return JSON.parse(readFileSync(CONFLICTS_PATH, 'utf-8')) as MergeConflict[];
   } catch {
     return [];
   }
@@ -66,13 +70,18 @@ export function saveConflicts(conflicts: MergeConflict[]): void {
 
 export function addConflict(conflicts: MergeConflict[], conflict: MergeConflict): void {
   const idx = conflicts.findIndex((c) => c.key === conflict.key);
-  if (idx >= 0) conflicts[idx] = conflict;
-  else conflicts.push(conflict);
+  if (idx >= 0) {
+    conflicts[idx] = conflict;
+  } else {
+    conflicts.push(conflict);
+  }
 }
 
 export function removeConflict(conflicts: MergeConflict[], key: string): void {
   const idx = conflicts.findIndex((c) => c.key === key);
-  if (idx >= 0) conflicts.splice(idx, 1);
+  if (idx >= 0) {
+    conflicts.splice(idx, 1);
+  }
 }
 
 export function getConflictKeys(conflicts: MergeConflict[]): Set<string> {
@@ -97,20 +106,28 @@ export interface RsyncFileChange {
 export function parseRsyncItemize(stdout: string): RsyncFileChange[] {
   const changes: RsyncFileChange[] = [];
   for (const line of stdout.split('\n')) {
-    if (line.length < 13) continue;
+    if (line.length < 13) {
+      continue;
+    }
 
     const updateType = line[0];
     const fileType = line[1];
 
     // Only track regular files
-    if (fileType !== 'f') continue;
+    if (fileType !== 'f') {
+      continue;
+    }
 
     // Only track transferred files
-    if (updateType !== '>' && updateType !== '<') continue;
+    if (updateType !== '>' && updateType !== '<') {
+      continue;
+    }
 
     const flags = line.slice(2, 11);
     const path = line.slice(12);
-    if (!path) continue;
+    if (path === '') {
+      continue;
+    }
 
     if (flags === '+++++++++') {
       changes.push({ path, type: '+' });
@@ -130,7 +147,7 @@ export function parseRsyncItemize(stdout: string): RsyncFileChange[] {
 
 export function computeDiffStats(
   oldContent: string,
-  newContent: string,
+  newContent: string
 ): { added: number; removed: number } {
   const oldLines = oldContent.split('\n');
   const newLines = newContent.split('\n');
@@ -159,7 +176,9 @@ export function computeDiffStats(
 }
 
 export function formatDiffBar(added: number, removed: number): string {
-  if (added === 0 && removed === 0) return '';
+  if (added === 0 && removed === 0) {
+    return '';
+  }
 
   const total = added + removed;
   const maxWidth = 10;
@@ -180,8 +199,12 @@ export function formatDiffBar(added: number, removed: number): string {
   }
 
   const parts: string[] = [];
-  if (addChars > 0) parts.push(`${GREEN}${'+'.repeat(addChars)}${RESET}`);
-  if (removeChars > 0) parts.push(`${RED}${'-'.repeat(removeChars)}${RESET}`);
+  if (addChars > 0) {
+    parts.push(`${GREEN}${'+'.repeat(addChars)}${RESET}`);
+  }
+  if (removeChars > 0) {
+    parts.push(`${RED}${'-'.repeat(removeChars)}${RESET}`);
+  }
   return parts.join('');
 }
 
@@ -190,9 +213,13 @@ export function diffBarForFiles(oldPath: string, newPath: string): string | unde
   try {
     const oldContent = readFileSync(oldPath, 'utf-8');
     const newContent = readFileSync(newPath, 'utf-8');
-    if (oldContent === newContent) return undefined;
+    if (oldContent === newContent) {
+      return undefined;
+    }
     const { added, removed } = computeDiffStats(oldContent, newContent);
-    if (added === 0 && removed === 0) return undefined;
+    if (added === 0 && removed === 0) {
+      return undefined;
+    }
     return formatDiffBar(added, removed);
   } catch {
     return undefined;
@@ -204,7 +231,9 @@ export function diffBarForFiles(oldPath: string, newPath: string): string | unde
 /** Read all text files in a directory into a map keyed by relative path. */
 export function snapshotTextFiles(dir: string, extensions = ['.md']): Map<string, string> {
   const snapshot = new Map<string, string>();
-  if (!existsSync(dir)) return snapshot;
+  if (!existsSync(dir)) {
+    return snapshot;
+  }
 
   function walk(current: string): void {
     try {
@@ -234,14 +263,14 @@ export function snapshotTextFiles(dir: string, extensions = ['.md']): Map<string
 export function buildFileChanges(
   stdout: string,
   baseDir: string,
-  snapshot: Map<string, string>,
+  snapshot: Map<string, string>
 ): FileChange[] {
   const rsyncChanges = parseRsyncItemize(stdout);
   return rsyncChanges.map((rc) => {
     const fc: FileChange = { name: rc.path, type: rc.type };
     if (rc.type === '~') {
       const oldContent = snapshot.get(rc.path);
-      if (oldContent) {
+      if (hasText(oldContent)) {
         try {
           const newContent = readFileSync(resolve(baseDir, rc.path), 'utf-8');
           const stats = computeDiffStats(oldContent, newContent);
@@ -264,15 +293,23 @@ export function buildFileChanges(
 export function aggregateToDirectories(
   changes: RsyncFileChange[],
   baseDir?: string,
-  snapshot?: Map<string, string>,
+  snapshot?: Map<string, string>
 ): FileChange[] {
   const dirMap = new Map<string, { types: Set<'+' | '~'>; files: RsyncFileChange[] }>();
   for (const rc of changes) {
     const parts = rc.path.split('/');
-    if (parts.length < 2) continue;
+    if (parts.length < 2) {
+      continue;
+    }
     const dirName = parts[0];
-    if (!dirMap.has(dirName)) dirMap.set(dirName, { types: new Set(), files: [] });
-    const entry = dirMap.get(dirName)!;
+    if (dirName === undefined) {
+      continue;
+    }
+    let entry = dirMap.get(dirName);
+    if (!entry) {
+      entry = { types: new Set(), files: [] };
+      dirMap.set(dirName, entry);
+    }
     entry.types.add(rc.type);
     entry.files.push(rc);
   }
@@ -282,13 +319,13 @@ export function aggregateToDirectories(
     const type = types.has('~') ? '~' : '+';
     let diffBar: string | undefined;
 
-    if (baseDir && snapshot && type === '~') {
+    if (hasText(baseDir) && snapshot && type === '~') {
       let totalAdded = 0;
       let totalRemoved = 0;
       for (const rc of files) {
         if (rc.type === '~') {
           const oldContent = snapshot.get(rc.path);
-          if (oldContent) {
+          if (hasText(oldContent)) {
             try {
               const newContent = readFileSync(resolve(baseDir, rc.path), 'utf-8');
               const stats = computeDiffStats(oldContent, newContent);
@@ -321,7 +358,7 @@ export function aggregateToDirectories(
 /** Compute aggregate diff bar for a directory by comparing old snapshot against current state. */
 export function directoryDiffBar(
   oldSnapshot: Map<string, string>,
-  dir: string,
+  dir: string
 ): string | undefined {
   const newSnapshot = snapshotTextFiles(dir);
   let totalAdded = 0;
@@ -329,7 +366,7 @@ export function directoryDiffBar(
 
   for (const [path, newContent] of newSnapshot) {
     const oldContent = oldSnapshot.get(path);
-    if (!oldContent) {
+    if (!hasText(oldContent)) {
       totalAdded += newContent.split('\n').length;
     } else if (oldContent !== newContent) {
       const stats = computeDiffStats(oldContent, newContent);
@@ -344,7 +381,9 @@ export function directoryDiffBar(
     }
   }
 
-  if (totalAdded === 0 && totalRemoved === 0) return undefined;
+  if (totalAdded === 0 && totalRemoved === 0) {
+    return undefined;
+  }
   return formatDiffBar(totalAdded, totalRemoved);
 }
 
@@ -355,28 +394,31 @@ const MAX_FILES_SHOWN = 3;
 function printFileChange(file: FileChange, indent: string): void {
   if (file.conflict) {
     console.log(`${indent}${RED}✖${RESET} ${file.name}  ${RED}CONFLICT${RESET}`);
-    if (file.note) {
+    if (hasText(file.note)) {
       console.log(`${indent}  ${DIM}${file.note}${RESET}`);
     }
     return;
   }
   const marker = file.type === '+' ? `${GREEN}+${RESET}` : `${YELLOW}~${RESET}`;
-  const bar = file.diffBar ? `  ${file.diffBar}` : '';
-  const note = file.note ? `  ${DIM}(${file.note})${RESET}` : '';
+  const bar = hasText(file.diffBar) ? `  ${file.diffBar}` : '';
+  const note = hasText(file.note) ? `  ${DIM}(${file.note})${RESET}` : '';
   console.log(`${indent}${marker} ${file.name}${bar}${note}`);
 }
 
 function printContentChange(change: ContentChange, indent: string): void {
-  if (change.summary) {
+  if (hasText(change.summary)) {
     console.log(`${indent}${change.label} — ${change.summary}`);
     return;
   }
 
-  if (!change.files || change.files.length === 0) return;
+  if (!change.files || change.files.length === 0) {
+    return;
+  }
 
   // Single file matching label — render as one line without header
-  if (change.files.length === 1 && change.files[0].name === change.label) {
-    printFileChange(change.files[0], indent);
+  const onlyFile = change.files.length === 1 ? change.files[0] : undefined;
+  if (onlyFile?.name === change.label) {
+    printFileChange(onlyFile, indent);
     return;
   }
 
@@ -425,7 +467,7 @@ export function printHostChanges(result: HostChanges): void {
 
 export function printMergeChanges(changes: ContentChange[]): void {
   for (const change of changes) {
-    if ((change.files && change.files.length > 0) || change.summary) {
+    if ((change.files !== undefined && change.files.length > 0) || hasText(change.summary)) {
       printContentChange(change, '  ');
     } else {
       console.log(`  ${change.label} — ${DIM}identical, skipped${RESET}`);
@@ -435,7 +477,8 @@ export function printMergeChanges(changes: ContentChange[]): void {
 
 /** Print a single merge step result with an ora checkmark/warning, matching pull/push style. */
 export function printMergeStepResult(spinner: ReturnType<typeof ora>, change: ContentChange): void {
-  const hasChanges = (change.files && change.files.length > 0) || change.summary;
+  const hasChanges =
+    (change.files !== undefined && change.files.length > 0) || hasText(change.summary);
   const hasConflict = change.files?.some((f) => f.conflict);
 
   if (!hasChanges) {
@@ -449,7 +492,7 @@ export function printMergeStepResult(spinner: ReturnType<typeof ora>, change: Co
     spinner.succeed(change.label);
   }
 
-  if (change.summary) {
+  if (hasText(change.summary)) {
     console.log(`      ${change.summary}`);
     return;
   }

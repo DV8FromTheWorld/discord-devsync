@@ -1,38 +1,51 @@
-import { existsSync, readdirSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync } from 'fs';
 import { resolve } from 'path';
-import { REMOTES_DIR, MERGED_DIR } from '../config.js';
+
+import { MERGED_DIR, REMOTES_DIR } from '../config.js';
 import { debug } from '../log.js';
 import { type ContentChange } from './changes.js';
 import { type DiffSet } from './content-compare.js';
-import { type MergeItem, dirMergeOps, mergeItems } from './merge-engine.js';
+import { dirMergeOps, type MergeItem, mergeItems } from './merge-engine.js';
 
 function findAllSkills(): Set<string> {
   const skills = new Set<string>();
-  if (!existsSync(REMOTES_DIR)) return skills;
+  if (!existsSync(REMOTES_DIR)) {
+    return skills;
+  }
 
   for (const host of readdirSync(REMOTES_DIR)) {
     const skillsDir = resolve(REMOTES_DIR, host, '.claude', 'skills');
-    if (!existsSync(skillsDir)) continue;
+    if (!existsSync(skillsDir)) {
+      continue;
+    }
     for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
-      if (entry.isDirectory()) skills.add(entry.name);
+      if (entry.isDirectory()) {
+        skills.add(entry.name);
+      }
     }
   }
   return skills;
 }
 
 function findSkillRemotes(skillName: string): string[] {
-  if (!existsSync(REMOTES_DIR)) return [];
+  if (!existsSync(REMOTES_DIR)) {
+    return [];
+  }
   const remotes: string[] = [];
   for (const host of readdirSync(REMOTES_DIR)) {
     const remoteSkill = resolve(REMOTES_DIR, host, '.claude', 'skills', skillName);
-    if (existsSync(remoteSkill)) remotes.push(remoteSkill);
+    if (existsSync(remoteSkill)) {
+      remotes.push(remoteSkill);
+    }
   }
   return remotes;
 }
 
 function buildPrompt(item: MergeItem, { basePath, baseLabel, diffs }: DiffSet): string {
   const diffSections = diffs
-    .map(({ host, diff }) => `--- Host: ${host} ---\n${diff || '(no changes from base)'}`)
+    .map(
+      ({ host, diff }) => `--- Host: ${host} ---\n${diff !== '' ? diff : '(no changes from base)'}`
+    )
     .join('\n\n');
 
   return [

@@ -1,11 +1,12 @@
-import { existsSync, readFileSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, readFileSync } from 'fs';
 import { resolve } from 'path';
+
 import {
-  REMOTES_DIR,
-  loadMcpServers,
-  saveMcpServers,
   loadMcpExclude,
+  loadMcpServers,
   type McpServer,
+  REMOTES_DIR,
+  saveMcpServers,
 } from '../config.js';
 import { debug, warn } from '../log.js';
 import { type ContentChange, type FileChange } from './changes.js';
@@ -17,11 +18,15 @@ interface RemoteMcpData {
 
 function loadRemoteMcpFiles(): RemoteMcpData[] {
   const results: RemoteMcpData[] = [];
-  if (!existsSync(REMOTES_DIR)) return results;
+  if (!existsSync(REMOTES_DIR)) {
+    return results;
+  }
 
   for (const host of readdirSync(REMOTES_DIR)) {
     const mcpFile = resolve(REMOTES_DIR, host, 'mcp-servers.json');
-    if (!existsSync(mcpFile)) continue;
+    if (!existsSync(mcpFile)) {
+      continue;
+    }
 
     try {
       const raw = readFileSync(mcpFile, 'utf-8');
@@ -67,25 +72,33 @@ export function mergeMcpServers(): { changes: ContentChange | null; warnings: st
 
   for (const serverName of remoteServerNames) {
     // Skip excluded servers
-    if (excluded.has(serverName)) continue;
+    if (excluded.has(serverName)) {
+      continue;
+    }
 
     const sources = remoteSources.filter((r) => serverName in r.servers);
+    const firstSource = sources[0];
+    // The filter above guarantees serverName is present on every source.
+    const firstServer = firstSource?.servers[serverName];
+    if (firstSource === undefined || firstServer === undefined) {
+      continue;
+    }
     const isKnown = serverName in existingMerged;
 
     if (isKnown) {
       // Known server — auto-merge (update config if changed)
       if (sources.length === 1) {
-        merged[serverName] = sources[0].servers[serverName];
+        merged[serverName] = firstServer;
       } else {
         const configs = sources.map((s) => JSON.stringify(s.servers[serverName]));
         const allSame = configs.every((c) => c === configs[0]);
         if (allSame) {
-          merged[serverName] = sources[0].servers[serverName];
+          merged[serverName] = firstServer;
         } else {
           // Conflict on known server — keep existing merged config
           const hosts = sources.map((s) => s.host).join(', ');
           warn(
-            `  Server '${serverName}' differs across hosts (${hosts}) — keeping existing config`,
+            `  Server '${serverName}' differs across hosts (${hosts}) — keeping existing config`
           );
         }
       }
@@ -93,8 +106,8 @@ export function mergeMcpServers(): { changes: ContentChange | null; warnings: st
       // New server — flag for review, don't auto-merge
       discovered.push({
         name: serverName,
-        host: sources[0].host,
-        server: sources[0].servers[serverName],
+        host: firstSource.host,
+        server: firstServer,
       });
     }
   }

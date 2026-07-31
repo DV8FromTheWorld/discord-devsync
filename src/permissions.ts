@@ -1,9 +1,9 @@
-import { loadPermissions, savePermissions, type ResolvedHost } from './config.js';
-import { success, error } from './log.js';
+import { loadPermissions, type ResolvedHost, savePermissions } from './config.js';
 import { reconcilePermissions } from './env/permissions.js';
+import { error, success } from './log.js';
 import { checkConnection } from './ssh.js';
-import { runParallel } from './sync/parallel.js';
 import { type HostChanges, printHostChanges } from './sync/changes.js';
+import { runParallel } from './sync/parallel.js';
 
 export function permissionsList(): void {
   const permissions = loadPermissions();

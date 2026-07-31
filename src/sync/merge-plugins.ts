@@ -1,14 +1,15 @@
-import { existsSync, readFileSync, readdirSync, cpSync, mkdirSync } from 'fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'fs';
 import { resolve } from 'path';
+
 import {
-  REMOTES_DIR,
-  PLUGINS_CACHE_DIR,
-  loadEnabledPlugins,
-  saveEnabledPlugins,
-  loadInstalledPlugins,
-  saveInstalledPlugins,
   type InstalledPluginsFile,
+  loadEnabledPlugins,
+  loadInstalledPlugins,
   type PluginInstallEntry,
+  PLUGINS_CACHE_DIR,
+  REMOTES_DIR,
+  saveEnabledPlugins,
+  saveInstalledPlugins,
 } from '../config.js';
 import { debug } from '../log.js';
 import { type ContentChange } from './changes.js';
@@ -25,13 +26,17 @@ export function mergePlugins(): ContentChange | null {
   if (existsSync(REMOTES_DIR)) {
     for (const host of readdirSync(REMOTES_DIR)) {
       const enabledFile = resolve(REMOTES_DIR, host, 'plugins-enabled.json');
-      if (!existsSync(enabledFile)) continue;
+      if (!existsSync(enabledFile)) {
+        continue;
+      }
 
       try {
         const raw = readFileSync(enabledFile, 'utf-8');
         const hostEnabled = JSON.parse(raw) as Record<string, boolean>;
         for (const [key, value] of Object.entries(hostEnabled)) {
-          if (typeof value !== 'boolean') continue;
+          if (typeof value !== 'boolean') {
+            continue;
+          }
           // If any host has it true, include as true
           if (value === true) {
             mergedEnabled[key] = true;
@@ -62,18 +67,26 @@ export function mergePlugins(): ContentChange | null {
   if (existsSync(REMOTES_DIR)) {
     for (const host of readdirSync(REMOTES_DIR)) {
       const installedFile = resolve(REMOTES_DIR, host, 'installed-plugins.json');
-      if (!existsSync(installedFile)) continue;
+      if (!existsSync(installedFile)) {
+        continue;
+      }
 
       try {
         const raw = readFileSync(installedFile, 'utf-8');
-        const hostData = JSON.parse(raw) as InstalledPluginsFile;
-        if (!hostData.plugins || typeof hostData.plugins !== 'object') continue;
+        const hostData = JSON.parse(raw) as Partial<InstalledPluginsFile>;
+        if (!hostData.plugins || typeof hostData.plugins !== 'object') {
+          continue;
+        }
 
         for (const [pluginKey, entries] of Object.entries(hostData.plugins)) {
-          if (!Array.isArray(entries)) continue;
+          if (!Array.isArray(entries)) {
+            continue;
+          }
 
           for (const entry of entries) {
-            if (entry.scope !== 'user') continue;
+            if (entry.scope !== 'user') {
+              continue;
+            }
 
             // Normalize installPath to canonical form for storage
             const normalized: PluginInstallEntry = {
@@ -88,14 +101,14 @@ export function mergePlugins(): ContentChange | null {
             }
 
             const existingIdx = mergedInstalled.plugins[pluginKey].findIndex(
-              (e) => e.scope === 'user',
+              (e) => e.scope === 'user'
             );
             if (existingIdx === -1) {
               mergedInstalled.plugins[pluginKey].push(normalized);
             } else {
               // Keep the one with the newest lastUpdated
               const existing = mergedInstalled.plugins[pluginKey][existingIdx];
-              if (normalized.lastUpdated > existing.lastUpdated) {
+              if (existing !== undefined && normalized.lastUpdated > existing.lastUpdated) {
                 mergedInstalled.plugins[pluginKey][existingIdx] = normalized;
               }
             }
@@ -117,16 +130,15 @@ export function mergePlugins(): ContentChange | null {
   }
 
   // --- Merge cache directories ---
-  let cacheCount = 0;
-
   if (existsSync(REMOTES_DIR)) {
     for (const host of readdirSync(REMOTES_DIR)) {
       const hostCache = resolve(REMOTES_DIR, host, '.claude', 'plugins', 'cache');
-      if (!existsSync(hostCache)) continue;
+      if (!existsSync(hostCache)) {
+        continue;
+      }
 
       mkdirSync(PLUGINS_CACHE_DIR, { recursive: true });
       cpSync(hostCache, PLUGINS_CACHE_DIR, { recursive: true });
-      cacheCount++;
     }
   }
 

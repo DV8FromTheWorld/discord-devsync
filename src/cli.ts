@@ -1,28 +1,29 @@
 import { configExists, loadConfig, resolveAllHosts, resolveHost } from './config.js';
-import { error, setVerbose, initFileLog, debug } from './log.js';
-import { fetch } from './sync/fetch.js';
-import { merge } from './sync/merge.js';
-import { push } from './sync/push.js';
-import { commit, maybePush } from './sync/commit.js';
-import { status } from './sync/status.js';
+import { cleanup } from './dream/cleanup.js';
 import { consolidate } from './dream/consolidate.js';
 import { curiosity } from './dream/curiosity.js';
-import { cleanup } from './dream/cleanup.js';
-import { onboard } from './onboard.js';
-import { init } from './init.js';
 import { hostAdd } from './host-add.js';
-import { listHosts, listLayers, listMcp } from './list.js';
 import { runImport } from './import.js';
+import { init } from './init.js';
+import { listHosts, listLayers, listMcp } from './list.js';
+import { debug, error, initFileLog, setVerbose } from './log.js';
 import { mcpAdd } from './mcp-add.js';
 import { mcpRemove } from './mcp-remove.js';
 import { mcpReview } from './mcp-review.js';
+import { onboard } from './onboard.js';
 import {
-  permissionsList,
   permissionsAdd,
-  permissionsRemove,
+  permissionsList,
   permissionsPush,
+  permissionsRemove,
 } from './permissions.js';
 import { showStatus } from './status.js';
+import { commit, maybePush } from './sync/commit.js';
+import { fetch } from './sync/fetch.js';
+import { merge } from './sync/merge.js';
+import { push } from './sync/push.js';
+import { status } from './sync/status.js';
+import { hasText } from './text.js';
 
 const USAGE = `\
 Usage: devsync <command> [subcommand] [options]
@@ -70,7 +71,9 @@ Permissions:
 
 function getHostFilter(args: string[]): string | undefined {
   const idx = args.indexOf('--host');
-  if (idx !== -1 && idx + 1 < args.length) return args[idx + 1];
+  if (idx !== -1 && idx + 1 < args.length) {
+    return args[idx + 1];
+  }
   return undefined;
 }
 
@@ -128,7 +131,9 @@ export async function run(args: string[]): Promise<void> {
 
     function getHosts() {
       const hostName = getHostFilter(args);
-      if (hostName) return [resolveHost(config, hostName)];
+      if (hasText(hostName)) {
+        return [resolveHost(config, hostName)];
+      }
       return allHosts;
     }
 
@@ -169,7 +174,9 @@ export async function run(args: string[]): Promise<void> {
     const allHosts = resolveAllHosts(config);
     const hosts = (() => {
       const hostName = getHostFilter(args);
-      if (hostName) return [resolveHost(config, hostName)];
+      if (hasText(hostName)) {
+        return [resolveHost(config, hostName)];
+      }
       return allHosts;
     })();
 
@@ -209,7 +216,7 @@ export async function run(args: string[]): Promise<void> {
     } else if (subcommand === 'onboard') {
       const config = requireConfig();
       const hostName = args[2];
-      if (!hostName) {
+      if (!hasText(hostName)) {
         error('Usage: devsync host onboard <name>');
         process.exit(1);
       }
@@ -236,7 +243,7 @@ export async function run(args: string[]): Promise<void> {
       await mcpAdd(args[2]);
     } else if (subcommand === 'remove') {
       const name = args[2];
-      if (!name) {
+      if (!hasText(name)) {
         error('Usage: devsync mcp remove <name>');
         process.exit(1);
       }
@@ -253,14 +260,14 @@ export async function run(args: string[]): Promise<void> {
       permissionsList();
     } else if (subcommand === 'add') {
       const rule = args.slice(2).join(' ');
-      if (!rule) {
+      if (rule === '') {
         error('Usage: devsync permissions add <rule>');
         process.exit(1);
       }
       permissionsAdd(rule);
     } else if (subcommand === 'remove') {
       const rule = args.slice(2).join(' ');
-      if (!rule) {
+      if (rule === '') {
         error('Usage: devsync permissions remove <rule>');
         process.exit(1);
       }
@@ -268,7 +275,7 @@ export async function run(args: string[]): Promise<void> {
     } else if (subcommand === 'push') {
       const config = requireConfig();
       const hostName = getHostFilter(args);
-      const hosts = hostName ? [resolveHost(config, hostName)] : resolveAllHosts(config);
+      const hosts = hasText(hostName) ? [resolveHost(config, hostName)] : resolveAllHosts(config);
       await permissionsPush(hosts);
     } else {
       error(`Unknown permissions subcommand: ${subcommand}`);

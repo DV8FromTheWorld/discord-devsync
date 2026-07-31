@@ -1,16 +1,22 @@
-import { existsSync, readFileSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, readFileSync } from 'fs';
 import { resolve } from 'path';
-import { REMOTES_DIR, MERGED_DIR, MCP_SERVERS_PATH, PERMISSIONS_PATH } from '../config.js';
+
+import { MCP_SERVERS_PATH, MERGED_DIR, PERMISSIONS_PATH, REMOTES_DIR } from '../config.js';
 import { info } from '../log.js';
 
 function globMdCount(dir: string): number {
-  if (!existsSync(dir)) return 0;
+  if (!existsSync(dir)) {
+    return 0;
+  }
   let count = 0;
   function walk(current: string): void {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const full = resolve(current, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.name.endsWith('.md')) count++;
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name.endsWith('.md')) {
+        count++;
+      }
     }
   }
   walk(dir);
@@ -46,7 +52,7 @@ export function status(): void {
       const skillsDir = resolve(hostDir, '.claude', 'skills');
       if (existsSync(skillsDir)) {
         const skills = readdirSync(skillsDir, { withFileTypes: true }).filter((e) =>
-          e.isDirectory(),
+          e.isDirectory()
         );
         console.log(`  + ${host} skills: ${skills.length} skills`);
       } else {
@@ -62,7 +68,7 @@ export function status(): void {
       const mcpFile = resolve(hostDir, 'mcp-servers.json');
       if (existsSync(mcpFile)) {
         try {
-          const mcpData = JSON.parse(readFileSync(mcpFile, 'utf-8'));
+          const mcpData = JSON.parse(readFileSync(mcpFile, 'utf-8')) as Record<string, unknown>;
           console.log(`  + ${host} MCP: ${Object.keys(mcpData).length} servers`);
         } catch {
           console.log(`  - ${host} MCP: invalid JSON`);
@@ -72,7 +78,7 @@ export function status(): void {
       const permFile = resolve(hostDir, 'permissions.json');
       if (existsSync(permFile)) {
         try {
-          const permData = JSON.parse(readFileSync(permFile, 'utf-8'));
+          const permData: unknown = JSON.parse(readFileSync(permFile, 'utf-8'));
           if (Array.isArray(permData)) {
             console.log(`  + ${host} permissions: ${permData.length} rules`);
           }
@@ -108,7 +114,7 @@ export function status(): void {
   const skillsMerged = resolve(MERGED_DIR, '.claude', 'skills');
   if (existsSync(skillsMerged)) {
     const skills = readdirSync(skillsMerged, { withFileTypes: true }).filter((e) =>
-      e.isDirectory(),
+      e.isDirectory()
     );
     console.log(`  + merged/skills: ${skills.length} skills`);
   } else {
@@ -125,7 +131,10 @@ export function status(): void {
 
   if (existsSync(MCP_SERVERS_PATH)) {
     try {
-      const mcpData = JSON.parse(readFileSync(MCP_SERVERS_PATH, 'utf-8'));
+      const mcpData = JSON.parse(readFileSync(MCP_SERVERS_PATH, 'utf-8')) as Record<
+        string,
+        unknown
+      >;
       console.log(`  + merged/mcp-servers.json: ${Object.keys(mcpData).length} servers`);
     } catch {
       console.log('  - merged/mcp-servers.json: invalid JSON');
@@ -136,7 +145,7 @@ export function status(): void {
 
   if (existsSync(PERMISSIONS_PATH)) {
     try {
-      const permData = JSON.parse(readFileSync(PERMISSIONS_PATH, 'utf-8'));
+      const permData: unknown = JSON.parse(readFileSync(PERMISSIONS_PATH, 'utf-8'));
       if (Array.isArray(permData)) {
         console.log(`  + merged/permissions.json: ${permData.length} rules`);
       }

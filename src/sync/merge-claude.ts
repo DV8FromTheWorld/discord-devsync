@@ -1,13 +1,16 @@
-import { existsSync, statSync, mkdirSync, readdirSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, statSync } from 'fs';
 import { resolve } from 'path';
-import { REMOTES_DIR, MERGED_DIR } from '../config.js';
+
+import { MERGED_DIR, REMOTES_DIR } from '../config.js';
 import { debug } from '../log.js';
 import { type ContentChange } from './changes.js';
 import { type DiffSet } from './content-compare.js';
-import { type MergeItem, fileMergeOps, mergeItems } from './merge-engine.js';
+import { fileMergeOps, type MergeItem, mergeItems } from './merge-engine.js';
 
 function findRemoteFiles(remoteFilename: string): string[] {
-  if (!existsSync(REMOTES_DIR)) return [];
+  if (!existsSync(REMOTES_DIR)) {
+    return [];
+  }
   return readdirSync(REMOTES_DIR)
     .map((host) => resolve(REMOTES_DIR, host, remoteFilename))
     .filter((f) => existsSync(f) && statSync(f).isFile());
@@ -15,7 +18,9 @@ function findRemoteFiles(remoteFilename: string): string[] {
 
 function buildPrompt(item: MergeItem, { basePath, baseLabel, diffs }: DiffSet): string {
   const diffSections = diffs
-    .map(({ host, diff }) => `--- Host: ${host} ---\n${diff || '(no changes from base)'}`)
+    .map(
+      ({ host, diff }) => `--- Host: ${host} ---\n${diff !== '' ? diff : '(no changes from base)'}`
+    )
     .join('\n\n');
 
   return [
@@ -42,7 +47,7 @@ function buildPrompt(item: MergeItem, { basePath, baseLabel, diffs }: DiffSet): 
 async function mergeClaudeFile(
   remoteFilename: string,
   mergedFilename: string,
-  label: string,
+  label: string
 ): Promise<ContentChange | null> {
   const remoteFiles = findRemoteFiles(remoteFilename);
   const mergedFile = resolve(MERGED_DIR, mergedFilename);
@@ -67,7 +72,7 @@ async function mergeClaudeFile(
       allowedTools: 'Read,Write,Glob',
       onClaudeFail: 'exit',
       buildPrompt,
-    },
+    }
   );
 }
 

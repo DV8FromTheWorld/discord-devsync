@@ -1,8 +1,10 @@
-import { input, select, confirm, checkbox } from '@inquirer/prompts';
-import { loadConfig, saveConfig, resolveHost, type Platform } from './config.js';
+import { checkbox, confirm, input, select } from '@inquirer/prompts';
+
+import { loadConfig, type Platform, resolveHost, saveConfig } from './config.js';
 import { info, success } from './log.js';
-import { checkConnection } from './ssh.js';
 import { onboard } from './onboard.js';
+import { checkConnection } from './ssh.js';
+import { hasText } from './text.js';
 
 export async function hostAdd(): Promise<void> {
   const config = loadConfig();
@@ -10,7 +12,9 @@ export async function hostAdd(): Promise<void> {
 
   // Hostname
   const hostname = await input({ message: 'SSH hostname (e.g., my-box.coder):' });
-  if (!hostname) return;
+  if (!hasText(hostname)) {
+    return;
+  }
 
   // Test connectivity
   const testHost = { hostname, isLocal: false } as Parameters<typeof checkConnection>[0];
@@ -21,7 +25,9 @@ export async function hostAdd(): Promise<void> {
       message: `Could not connect to ${hostname}. Retry?`,
       default: true,
     });
-    if (!retry) return;
+    if (!retry) {
+      return;
+    }
     connected = await checkConnection(testHost);
   }
   success(`Connected to ${hostname}`);
@@ -37,7 +43,9 @@ export async function hostAdd(): Promise<void> {
       message: `Host '${name}' already exists. Overwrite?`,
       default: false,
     });
-    if (!overwrite) return;
+    if (!overwrite) {
+      return;
+    }
   }
 
   // Platform
@@ -75,29 +83,37 @@ export async function hostAdd(): Promise<void> {
       message: 'Path to CLAUDE.local.md:',
       default: platformDefaults?.claude_local_md ?? '~/discord/CLAUDE.local.md',
     });
-    if (claudeLocalMd !== platformDefaults?.claude_local_md)
+    if (claudeLocalMd !== platformDefaults?.claude_local_md) {
       hostConfig.paths.claude_local_md = claudeLocalMd;
+    }
 
     const userClaudeMd = await input({
       message: 'Path to user CLAUDE.md:',
       default: platformDefaults?.user_claude_md ?? '~/.claude/CLAUDE.md',
     });
-    if (userClaudeMd !== platformDefaults?.user_claude_md)
+    if (userClaudeMd !== platformDefaults?.user_claude_md) {
       hostConfig.paths.user_claude_md = userClaudeMd;
+    }
 
     const kb = await input({
       message: 'Path to KB directory:',
       default: platformDefaults?.kb ?? '~/discord-kb',
     });
-    if (kb !== platformDefaults?.kb) hostConfig.paths.kb = kb;
+    if (kb !== platformDefaults?.kb) {
+      hostConfig.paths.kb = kb;
+    }
 
     const skills = await input({
       message: 'Path to skills directory:',
       default: platformDefaults?.skills ?? '~/.claude/skills',
     });
-    if (skills !== platformDefaults?.skills) hostConfig.paths.skills = skills;
+    if (skills !== platformDefaults?.skills) {
+      hostConfig.paths.skills = skills;
+    }
 
-    if (Object.keys(hostConfig.paths).length === 0) delete hostConfig.paths;
+    if (Object.keys(hostConfig.paths).length === 0) {
+      delete hostConfig.paths;
+    }
   }
 
   config.hosts[name] = hostConfig;

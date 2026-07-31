@@ -1,8 +1,9 @@
 import { execFileSync } from 'child_process';
 import { mkdirSync } from 'fs';
 import { resolve } from 'path';
-import { MERGED_DIR, DATA_DIR } from '../config.js';
-import { info, success, error } from '../log.js';
+
+import { DATA_DIR, MERGED_DIR } from '../config.js';
+import { error, info, success } from '../log.js';
 
 export function curiosity(): void {
   info('Starting curiosity generation...');
@@ -65,7 +66,7 @@ Print a brief summary when done.`;
       {
         cwd: DATA_DIR,
         stdio: 'inherit',
-      },
+      }
     );
   } catch {
     error('Curiosity generation failed');

@@ -1,17 +1,17 @@
-import { test, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  utimesSync,
-  readFileSync,
-  statSync,
   existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
   rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
 } from 'node:fs';
-import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { after, beforeEach, test } from 'node:test';
 
 // config.ts resolves DATA_DIR from $HOME the moment its module graph loads, so HOME has
 // to point at a throwaway directory before the dynamic imports below — a static import
@@ -73,7 +73,7 @@ test('copies a non-markdown file into merged', async () => {
   assert.equal(readMerged(PATCH), 'from A\n');
   assert.deepEqual(
     change?.files?.map((file) => ({ name: file.name, type: file.type })),
-    [{ name: PATCH, type: '+' }],
+    [{ name: PATCH, type: '+' }]
   );
 });
 
@@ -101,7 +101,7 @@ test('takes a newer version from another host even when its mtime predates the l
   assert.equal(mergedMtimeSeconds(PATCH), ONE_HOUR_AGO);
   assert.deepEqual(
     change?.files?.map((file) => ({ name: file.name, type: file.type })),
-    [{ name: PATCH, type: '~' }],
+    [{ name: PATCH, type: '~' }]
   );
 });
 

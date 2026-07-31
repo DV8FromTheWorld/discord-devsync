@@ -1,25 +1,23 @@
 import { execFileSync } from 'child_process';
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { resolve } from 'path';
+
 import {
-  DATA_DIR,
   CONFIG_PATH,
-  MERGED_DIR,
-  REMOTES_DIR,
+  DATA_DIR,
   DOTFILES_DIR,
-  SECRETS_DIR,
   DREAM_LOG_DIR,
-  MCP_SERVERS_PATH,
-  PERMISSIONS_PATH,
-  PLUGINS_ENABLED_PATH,
-  PLUGINS_INSTALLED_PATH,
   loadConfig,
-  loadMcpServers,
-  loadPermissions,
   loadEnabledPlugins,
   loadInstalledPlugins,
+  loadMcpServers,
+  loadPermissions,
+  MERGED_DIR,
+  REMOTES_DIR,
   resolveAllHosts,
+  SECRETS_DIR,
 } from './config.js';
+import { hasText } from './text.js';
 
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
@@ -37,13 +35,18 @@ function kv(key: string, value: string | number, indent = 2): void {
 }
 
 function countFiles(dir: string, ext?: string): number {
-  if (!existsSync(dir)) return 0;
+  if (!existsSync(dir)) {
+    return 0;
+  }
   let count = 0;
   function walk(current: string): void {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const full = resolve(current, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (!ext || entry.name.endsWith(ext)) count++;
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (!hasText(ext) || entry.name.endsWith(ext)) {
+        count++;
+      }
     }
   }
   walk(dir);
@@ -51,11 +54,18 @@ function countFiles(dir: string, ext?: string): number {
 }
 
 function countDirs(dir: string): number {
-  if (!existsSync(dir)) return 0;
+  if (!existsSync(dir)) {
+    return 0;
+  }
   return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).length;
 }
 
-function gitInfo(cwd: string): { isRepo: boolean; lastCommit?: string; branch?: string; dirty?: boolean } {
+function gitInfo(cwd: string): {
+  isRepo: boolean;
+  lastCommit?: string;
+  branch?: string;
+  dirty?: boolean;
+} {
   try {
     execFileSync('git', ['rev-parse', '--git-dir'], { cwd, stdio: 'pipe' });
   } catch {
@@ -102,8 +112,8 @@ export function showStatus(): void {
 
   const git = gitInfo(DATA_DIR);
   if (git.isRepo) {
-    kv('git branch', git.branch || '(detached)');
-    if (git.lastCommit) {
+    kv('git branch', hasText(git.branch) ? git.branch : '(detached)');
+    if (hasText(git.lastCommit)) {
       kv('last commit', git.lastCommit);
     }
     if (git.dirty) {
@@ -124,9 +134,7 @@ export function showStatus(): void {
   const resolved = resolveAllHosts(config);
   for (const host of resolved) {
     const locality = host.isLocal ? `${DIM}(local)${RESET}` : `${DIM}(${host.hostname})${RESET}`;
-    const layers = host.isLocal
-      ? config.hosts[host.name].layers.join(', ')
-      : config.hosts[host.name].layers.join(', ');
+    const layers = config.hosts[host.name]?.layers.join(', ') ?? '';
     console.log(`  ${BOLD}${host.name}${RESET} ${locality}`);
     kv('platform', host.platform, 4);
     kv('layers', layers, 4);
@@ -136,7 +144,7 @@ export function showStatus(): void {
   const layerEntries = Object.entries(config.layers);
   heading(`Layers (${layerEntries.length})`);
   for (const [name, layer] of layerEntries) {
-    const desc = layer.description ? ` ${DIM}— ${layer.description}${RESET}` : '';
+    const desc = hasText(layer.description) ? ` ${DIM}— ${layer.description}${RESET}` : '';
     console.log(`  ${BOLD}${name}${RESET}${desc}`);
   }
 
@@ -208,7 +216,9 @@ export function showStatus(): void {
 
   const secretsEnv = resolve(SECRETS_DIR, 'env');
   if (existsSync(secretsEnv)) {
-    const lines = readFileSync(secretsEnv, 'utf-8').split('\n').filter((l) => l.trim() && !l.startsWith('#')).length;
+    const lines = readFileSync(secretsEnv, 'utf-8')
+      .split('\n')
+      .filter((l) => l.trim() !== '' && !l.startsWith('#')).length;
     kv('secrets', `${GREEN}✓${RESET} ${lines} variables`);
   } else {
     kv('secrets', '—');
@@ -216,7 +226,9 @@ export function showStatus(): void {
 
   // --- Remotes (last fetch) ---
   if (existsSync(REMOTES_DIR)) {
-    const remoteHosts = readdirSync(REMOTES_DIR, { withFileTypes: true }).filter((e) => e.isDirectory());
+    const remoteHosts = readdirSync(REMOTES_DIR, { withFileTypes: true }).filter((e) =>
+      e.isDirectory()
+    );
     if (remoteHosts.length > 0) {
       heading(`Remotes Cache (${remoteHosts.length} hosts)`);
       for (const entry of remoteHosts) {
@@ -240,7 +252,9 @@ export function showStatus(): void {
       heading('Dream Log');
       kv('entries', `${logs.length} logs`);
       const latest = logs.sort().at(-1);
-      if (latest) kv('latest', latest.replace('.md', ''));
+      if (hasText(latest)) {
+        kv('latest', latest.replace('.md', ''));
+      }
     }
   }
 
@@ -249,11 +263,17 @@ export function showStatus(): void {
 
 function timeSince(timestampMs: number): string {
   const seconds = Math.floor((Date.now() - timestampMs) / 1000);
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
+  if (hours < 24) {
+    return `${hours}h`;
+  }
   const days = Math.floor(hours / 24);
   return `${days}d`;
 }

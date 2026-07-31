@@ -1,37 +1,30 @@
-import {
-  existsSync,
-  statSync,
-  mkdirSync,
-  readdirSync,
-  copyFileSync,
-  readFileSync,
-  writeFileSync,
-} from 'fs';
 import { spawn } from 'child_process';
-import { resolve, relative } from 'path';
-import { REMOTES_DIR, DATA_DIR } from '../config.js';
-import { debug, warn, error, logDetail, getLogFilePath } from '../log.js';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'fs';
+import { relative, resolve } from 'path';
+
+import { DATA_DIR, REMOTES_DIR } from '../config.js';
+import { debug, error, getLogFilePath, logDetail, warn } from '../log.js';
+import { rsyncMirror } from '../ssh.js';
+import { hasText } from '../text.js';
 import {
-  filesAreIdentical,
+  addConflict,
+  computeDiffStats,
+  type ContentChange,
+  directoryDiffBar,
+  type FileChange,
+  formatDiffBar,
+  loadConflicts,
+  removeConflict,
+  saveConflicts,
+  snapshotTextFiles,
+} from './changes.js';
+import {
   dirsAreIdentical,
-  generateFileDiffs,
+  filesAreIdentical,
   generateDirDiffs,
+  generateFileDiffs,
 } from './content-compare.js';
 import { type DiffSet } from './content-compare.js';
-import { rsyncMirror } from '../ssh.js';
-import {
-  type ContentChange,
-  type FileChange,
-  type MergeConflict,
-  computeDiffStats,
-  formatDiffBar,
-  snapshotTextFiles,
-  directoryDiffBar,
-  loadConflicts,
-  saveConflicts,
-  addConflict,
-  removeConflict,
-} from './changes.js';
 
 // ─── Strategy interfaces ───────────────────────────────────────
 
@@ -63,7 +56,9 @@ export const fileMergeOps: MergeOps = {
   generateDiffs: generateFileDiffs,
   snapshot: (path) => (existsSync(path) ? readFileSync(path, 'utf-8') : null),
   unchanged: (old, path) => {
-    if (typeof old !== 'string') return false;
+    if (typeof old !== 'string') {
+      return false;
+    }
     try {
       return readFileSync(path, 'utf-8') === old;
     } catch {
@@ -71,11 +66,15 @@ export const fileMergeOps: MergeOps = {
     }
   },
   diffBar: (old, path) => {
-    if (typeof old !== 'string') return undefined;
+    if (typeof old !== 'string') {
+      return undefined;
+    }
     try {
       const newContent = readFileSync(path, 'utf-8');
       const stats = computeDiffStats(old, newContent);
-      if (stats.added > 0 || stats.removed > 0) return formatDiffBar(stats.added, stats.removed);
+      if (stats.added > 0 || stats.removed > 0) {
+        return formatDiffBar(stats.added, stats.removed);
+      }
     } catch {
       /* skip */
     }
@@ -87,14 +86,18 @@ export const fileMergeOps: MergeOps = {
 function newestMtime(dir: string): number {
   let newest = 0;
   function walk(current: string): void {
-    if (!existsSync(current)) return;
+    if (!existsSync(current)) {
+      return;
+    }
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const full = resolve(current, entry.name);
       if (entry.isDirectory()) {
         walk(full);
       } else {
         const mtime = statSync(full).mtimeMs;
-        if (mtime > newest) newest = mtime;
+        if (mtime > newest) {
+          newest = mtime;
+        }
       }
     }
   }
@@ -113,9 +116,13 @@ export const dirMergeOps: MergeOps = {
   unchanged: (old, path) => {
     const oldMap = old as Map<string, string>;
     const newMap = snapshotTextFiles(path);
-    if (oldMap.size !== newMap.size) return false;
+    if (oldMap.size !== newMap.size) {
+      return false;
+    }
     for (const [k, v] of oldMap) {
-      if (newMap.get(k) !== v) return false;
+      if (newMap.get(k) !== v) {
+        return false;
+      }
     }
     return true;
   },
@@ -179,7 +186,7 @@ function invokeClaudeMerge(name: string, prompt: string, allowedTools: string): 
         '-p',
         prompt,
       ],
-      { cwd: DATA_DIR, stdio: ['ignore', 'pipe', 'pipe'] },
+      { cwd: DATA_DIR, stdio: ['ignore', 'pipe', 'pipe'] }
     );
 
     let stdout = '';
@@ -195,28 +202,38 @@ function invokeClaudeMerge(name: string, prompt: string, allowedTools: string): 
     });
 
     child.on('close', (code, signal) => {
-      if (stdout) logDetail(`claude stdout: ${name}`, stdout);
-      if (stderr) logDetail(`claude stderr: ${name}`, stderr);
+      if (stdout !== '') {
+        logDetail(`claude stdout: ${name}`, stdout);
+      }
+      if (stderr !== '') {
+        logDetail(`claude stderr: ${name}`, stderr);
+      }
       if (code === 0) {
         resolvePromise(true);
         return;
       }
       logDetail(
         `claude merge FAILED: ${name}`,
-        `exit code: ${code}\nsignal: ${signal ?? '(none)'}`,
+        `exit code: ${code}\nsignal: ${signal ?? '(none)'}`
       );
       resolvePromise(false);
     });
   });
 }
 
+/** Host directory name that a remote path sits under. */
+function hostNameOf(remotePath: string): string {
+  const [host] = relative(REMOTES_DIR, remotePath).split('/');
+  return host ?? '';
+}
+
 // ─── Core engine ───────────────────────────────────────────────
 
 export async function mergeItems(
   items: MergeItem[],
-  config: MergeConfig,
+  config: MergeConfig
 ): Promise<ContentChange | null> {
-  const { label, ops, buildPrompt, allowedTools, onClaudeFail, nameSuffix } = config;
+  const { label, ops, allowedTools, onClaudeFail, nameSuffix } = config;
   const useConflicts = items.some((i) => i.conflictKey !== null);
   const conflicts = useConflicts ? loadConflicts() : [];
   const files: FileChange[] = [];
@@ -235,7 +252,9 @@ export async function mergeItems(
       }
     });
 
-    if (newerRemotes.length === 0) continue;
+    if (newerRemotes.length === 0) {
+      continue;
+    }
 
     // A newer mtime does not mean different content. rsync preserves times, so a re-fetch
     // or a little clock skew can leave a byte-identical file looking newer than merged —
@@ -261,33 +280,44 @@ export async function mergeItems(
 
     ops.ensureDir(mergedPath);
 
+    const firstChangedRemote = changedRemotes[0];
+    if (firstChangedRemote === undefined) {
+      continue;
+    }
+
     if (changedRemotes.length === 1) {
-      const host = relative(REMOTES_DIR, changedRemotes[0]).split('/')[0];
+      const host = hostNameOf(firstChangedRemote);
       debug(`  ${name}: updated by ${host} — copying`);
-      await ops.copy(changedRemotes[0], mergedPath);
-      if (conflictKey) removeConflict(conflicts, conflictKey);
+      await ops.copy(firstChangedRemote, mergedPath);
+      if (conflictKey !== null) {
+        removeConflict(conflicts, conflictKey);
+      }
     } else if (ops.areIdentical(changedRemotes)) {
       debug(`  ${name}: ${changedRemotes.length} hosts updated, content identical — copying`);
-      await ops.copy(changedRemotes[0], mergedPath);
-      if (conflictKey) removeConflict(conflicts, conflictKey);
+      await ops.copy(firstChangedRemote, mergedPath);
+      if (conflictKey !== null) {
+        removeConflict(conflicts, conflictKey);
+      }
     } else {
       // Multi-way conflict — invoke Claude
       const diffs = ops.generateDiffs(existed ? mergedPath : null, changedRemotes, REMOTES_DIR);
-      const prompt = buildPrompt(item, diffs);
+      const prompt = config.buildPrompt(item, diffs);
 
       debug(`  Invoking Claude to merge ${name}...`);
       const success = await invokeClaudeMerge(name, prompt, allowedTools);
 
       if (!success) {
-        const hostNames = changedRemotes.map((r) => relative(REMOTES_DIR, r).split('/')[0]);
+        const hostNames = changedRemotes.map((r) => hostNameOf(r));
         if (onClaudeFail === 'exit') {
           error(`${label} merge failed for ${name} (hosts: ${hostNames.join(', ')})`);
           const logPath = getLogFilePath();
-          if (logPath) error(`Claude output recorded in ${logPath}`);
+          if (hasText(logPath)) {
+            error(`Claude output recorded in ${logPath}`);
+          }
           process.exit(1);
         }
         // Soft failure — record conflict, don't overwrite merged/
-        if (conflictKey) {
+        if (conflictKey !== null) {
           addConflict(conflicts, {
             key: conflictKey,
             hosts: hostNames,
@@ -297,7 +327,7 @@ export async function mergeItems(
         }
         warn(`  Claude merge failed for ${name}`);
         files.push({
-          name: nameSuffix ? name + nameSuffix : name,
+          name: hasText(nameSuffix) ? name + nameSuffix : name,
           type: '~',
           conflict: true,
           note: `Versions differ on: ${hostNames.join(', ')}. Resolve in merged/ or re-run sync to retry.`,
@@ -306,15 +336,19 @@ export async function mergeItems(
       }
 
       claudeMerge = true;
-      if (conflictKey) removeConflict(conflicts, conflictKey);
+      if (conflictKey !== null) {
+        removeConflict(conflicts, conflictKey);
+      }
       debug(`  Merged ${name} from ${changedRemotes.length} sources`);
     }
 
     // Check if content actually changed
-    if (existed && oldSnapshot !== null && ops.unchanged(oldSnapshot, mergedPath)) continue;
+    if (existed && oldSnapshot !== null && ops.unchanged(oldSnapshot, mergedPath)) {
+      continue;
+    }
 
     const fc: FileChange = {
-      name: nameSuffix ? name + nameSuffix : name,
+      name: hasText(nameSuffix) ? name + nameSuffix : name,
       type: existed ? '~' : '+',
     };
 
@@ -329,7 +363,11 @@ export async function mergeItems(
     files.push(fc);
   }
 
-  if (useConflicts) saveConflicts(conflicts);
-  if (files.length === 0) return null;
+  if (useConflicts) {
+    saveConflicts(conflicts);
+  }
+  if (files.length === 0) {
+    return null;
+  }
   return { label, files };
 }

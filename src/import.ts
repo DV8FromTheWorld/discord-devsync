@@ -1,8 +1,19 @@
-import { existsSync, readFileSync, readdirSync, mkdirSync, cpSync, copyFileSync } from 'fs';
-import { resolve } from 'path';
+import { checkbox, confirm, input } from '@inquirer/prompts';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'fs';
 import { homedir } from 'os';
-import { input, confirm, checkbox } from '@inquirer/prompts';
-import { loadConfig, getHostPaths, loadMcpServers, saveMcpServers, loadPermissions, savePermissions, MERGED_DIR, type McpServer, type Paths } from './config.js';
+import { resolve } from 'path';
+
+import {
+  getHostPaths,
+  loadConfig,
+  loadMcpServers,
+  loadPermissions,
+  type McpServer,
+  MERGED_DIR,
+  type Paths,
+  saveMcpServers,
+  savePermissions,
+} from './config.js';
 import { info, success, warn } from './log.js';
 
 function expandHome(p: string): string {
@@ -10,18 +21,25 @@ function expandHome(p: string): string {
 }
 
 function countSkills(dir: string): number {
-  if (!existsSync(dir)) return 0;
+  if (!existsSync(dir)) {
+    return 0;
+  }
   return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).length;
 }
 
 function countMdFiles(dir: string): number {
-  if (!existsSync(dir)) return 0;
+  if (!existsSync(dir)) {
+    return 0;
+  }
   let count = 0;
   function walk(current: string): void {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const full = resolve(current, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.name.endsWith('.md')) count++;
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name.endsWith('.md')) {
+        count++;
+      }
     }
   }
   walk(dir);
@@ -38,7 +56,9 @@ async function resolvePath(label: string, defaultPath: string): Promise<string> 
       default: defaultPath,
     });
 
-    if (action === 'skip') return '';
+    if (action === 'skip') {
+      return '';
+    }
     defaultPath = action;
     resolved = expandHome(action);
   }
@@ -83,27 +103,42 @@ export async function runImport(paths?: Paths): Promise<void> {
   // Agent definitions from ~/.claude/agents/
   const agentsPath = resolve(homedir(), '.claude', 'agents');
 
-  const hasUserClaude = userClaudePath && existsSync(userClaudePath);
-  const hasClaudeLocal = claudeLocalPath && existsSync(claudeLocalPath);
-  const kbCount = kbPath ? countMdFiles(kbPath) : 0;
-  const skillCount = skillsPath ? countSkills(skillsPath) : 0;
+  // resolvePath returns '' when the user chooses to skip.
+  const hasUserClaude = userClaudePath !== '' && existsSync(userClaudePath);
+  const hasClaudeLocal = claudeLocalPath !== '' && existsSync(claudeLocalPath);
+  const kbCount = kbPath !== '' ? countMdFiles(kbPath) : 0;
+  const skillCount = skillsPath !== '' ? countSkills(skillsPath) : 0;
   const agentCount = existsSync(agentsPath) ? countMdFiles(agentsPath) : 0;
 
   // Report what was found
   console.log();
-  if (hasUserClaude) info(`  user CLAUDE.md found at ${userClaudePath}`);
-  else if (userClaudePath) warn('  user CLAUDE.md: skipped');
+  if (hasUserClaude) {
+    info(`  user CLAUDE.md found at ${userClaudePath}`);
+  } else if (userClaudePath !== '') {
+    warn('  user CLAUDE.md: skipped');
+  }
 
-  if (hasClaudeLocal) info(`  CLAUDE.local.md found at ${claudeLocalPath}`);
-  else if (claudeLocalPath) warn('  CLAUDE.local.md: skipped');
+  if (hasClaudeLocal) {
+    info(`  CLAUDE.local.md found at ${claudeLocalPath}`);
+  } else if (claudeLocalPath !== '') {
+    warn('  CLAUDE.local.md: skipped');
+  }
 
-  if (kbCount > 0) info(`  KB: ${kbCount} files at ${kbPath}`);
-  else if (kbPath) warn('  KB: no .md files found');
+  if (kbCount > 0) {
+    info(`  KB: ${kbCount} files at ${kbPath}`);
+  } else if (kbPath !== '') {
+    warn('  KB: no .md files found');
+  }
 
-  if (skillCount > 0) info(`  Skills: ${skillCount} skills at ${skillsPath}`);
-  else if (skillsPath) warn('  Skills: no skills found');
+  if (skillCount > 0) {
+    info(`  Skills: ${skillCount} skills at ${skillsPath}`);
+  } else if (skillsPath !== '') {
+    warn('  Skills: no skills found');
+  }
 
-  if (agentCount > 0) info(`  Agents: ${agentCount} agent definitions at ${agentsPath}`);
+  if (agentCount > 0) {
+    info(`  Agents: ${agentCount} agent definitions at ${agentsPath}`);
+  }
 
   if (hasUserClaude || hasClaudeLocal || kbCount > 0 || skillCount > 0 || agentCount > 0) {
     const doImport = await confirm({
@@ -156,10 +191,16 @@ export async function runImport(paths?: Paths): Promise<void> {
 async function importMcpServers(): Promise<void> {
   try {
     const claudeJsonPath = resolve(homedir(), '.claude.json');
-    if (!existsSync(claudeJsonPath)) return;
+    if (!existsSync(claudeJsonPath)) {
+      return;
+    }
 
     const raw = readFileSync(claudeJsonPath, 'utf-8');
-    const claudeJson = JSON.parse(raw);
+    // Only the two keys we read are described; the file holds far more than this.
+    const claudeJson = JSON.parse(raw) as {
+      mcpServers?: Record<string, unknown>;
+      projects?: Record<string, unknown>;
+    };
 
     // Collect MCP servers from all scopes
     const found: Record<string, { server: McpServer; source: string }> = {};
@@ -179,7 +220,9 @@ async function importMcpServers(): Promise<void> {
       for (const [projectPath, projectData] of Object.entries(claudeJson.projects)) {
         const data = projectData as Record<string, unknown>;
         const mcpServers = data.mcpServers as Record<string, McpServer> | undefined;
-        if (!mcpServers || typeof mcpServers !== 'object') continue;
+        if (!mcpServers || typeof mcpServers !== 'object') {
+          continue;
+        }
         for (const [name, server] of Object.entries(mcpServers)) {
           if (server.type === 'http' || server.type === 'sse' || server.type === 'stdio') {
             const shortPath = projectPath.replace(homedir(), '~');
@@ -189,7 +232,9 @@ async function importMcpServers(): Promise<void> {
       }
     }
 
-    if (Object.keys(found).length === 0) return;
+    if (Object.keys(found).length === 0) {
+      return;
+    }
 
     info(`  Found ${Object.keys(found).length} MCP server(s) in ~/.claude.json`);
 
@@ -204,11 +249,16 @@ async function importMcpServers(): Promise<void> {
       choices,
     });
 
-    if (selected.length === 0) return;
+    if (selected.length === 0) {
+      return;
+    }
 
     const existing = loadMcpServers();
     for (const name of selected) {
-      existing[name] = found[name].server;
+      const entry = found[name];
+      if (entry) {
+        existing[name] = entry.server;
+      }
     }
 
     saveMcpServers(existing);
@@ -221,17 +271,22 @@ async function importMcpServers(): Promise<void> {
 async function importPermissions(): Promise<void> {
   try {
     const settingsPath = resolve(homedir(), '.claude', 'settings.json');
-    if (!existsSync(settingsPath)) return;
+    if (!existsSync(settingsPath)) {
+      return;
+    }
 
     const raw = readFileSync(settingsPath, 'utf-8');
-    const settings = JSON.parse(raw);
+    const settings = JSON.parse(raw) as { permissions?: Record<string, unknown> };
 
-    const permissions = settings.permissions as Record<string, unknown> | undefined;
-    const allow = permissions?.allow;
-    if (!Array.isArray(allow) || allow.length === 0) return;
+    const allow = settings.permissions?.allow;
+    if (!Array.isArray(allow) || allow.length === 0) {
+      return;
+    }
 
-    const rules = allow.filter((p: unknown) => typeof p === 'string') as string[];
-    if (rules.length === 0) return;
+    const rules = allow.filter((p: unknown) => typeof p === 'string');
+    if (rules.length === 0) {
+      return;
+    }
 
     info(`  Found ${rules.length} permission rule(s) in ~/.claude/settings.json`);
     const doImport = await confirm({

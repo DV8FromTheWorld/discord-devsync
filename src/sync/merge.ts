@@ -1,21 +1,23 @@
 import { existsSync } from 'fs';
 import ora from 'ora';
+
 import { REMOTES_DIR } from '../config.js';
 import { debug } from '../log.js';
-import { mergeUserClaudeMd, mergeClaudeLocalMd } from './merge-claude.js';
-import { migrateFromSingleClaudeMd } from './migrate-claude.js';
-import { mergeKbDirectories } from './merge-kb.js';
-import { mergeSkillsDirectories } from './merge-skills.js';
-import { mergeMcpServers } from './merge-mcp.js';
-import { mergeAgents } from './merge-agents.js';
-import { mergePlugins } from './merge-plugins.js';
-import { mergePermissions } from './merge-permissions.js';
-import { collectJournalEntries } from './collect-journal.js';
+import { hasText } from '../text.js';
 import { type ContentChange, printMergeStepResult } from './changes.js';
+import { collectJournalEntries } from './collect-journal.js';
+import { mergeAgents } from './merge-agents.js';
+import { mergeClaudeLocalMd, mergeUserClaudeMd } from './merge-claude.js';
+import { mergeKbDirectories } from './merge-kb.js';
+import { mergeMcpServers } from './merge-mcp.js';
+import { mergePermissions } from './merge-permissions.js';
+import { mergePlugins } from './merge-plugins.js';
+import { mergeSkillsDirectories } from './merge-skills.js';
+import { migrateFromSingleClaudeMd } from './migrate-claude.js';
 
 async function mergeStep(
   label: string,
-  fn: () => ContentChange | null | Promise<ContentChange | null>,
+  fn: () => ContentChange | null | Promise<ContentChange | null>
 ): Promise<ContentChange> {
   const spinner = ora({ text: `${label}...`, prefixText: '  ' }).start();
   const result = (await fn()) ?? { label };
@@ -34,7 +36,9 @@ export async function merge(): Promise<void> {
 
   let hasChanges = false;
   function track(change: ContentChange): void {
-    if ((change.files && change.files.length > 0) || change.summary) hasChanges = true;
+    if ((change.files !== undefined && change.files.length > 0) || hasText(change.summary)) {
+      hasChanges = true;
+    }
   }
 
   track(await mergeStep('user CLAUDE.md', mergeUserClaudeMd));

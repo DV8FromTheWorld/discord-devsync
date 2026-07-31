@@ -1,17 +1,17 @@
-import { test, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  utimesSync,
-  readFileSync,
-  existsSync,
-  rmSync,
   chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
 } from 'node:fs';
-import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { after, beforeEach, test } from 'node:test';
 
 // See test/merge-kb.test.ts — HOME must be redirected before the module graph loads.
 const fakeHome = mkdtempSync(resolve(tmpdir(), 'devsync-merge-engine-'));
@@ -67,7 +67,7 @@ function runMerge(remotePaths: string[]) {
       allowedTools: 'Read,Write',
       onClaudeFail: 'conflict',
       buildPrompt: () => 'unused — claude is unreachable in tests',
-    },
+    }
   );
 }
 
@@ -144,7 +144,7 @@ test('still routes genuinely divergent hosts to a Claude merge', async () => {
   assert.equal(change?.files?.[0]?.conflict, true);
   const conflicts = loadConflicts();
   assert.equal(conflicts.length, 1);
-  assert.deepEqual(conflicts[0].hosts.sort(), ['hostA', 'hostB']);
+  assert.deepEqual(conflicts[0]?.hosts.sort(), ['hostA', 'hostB']);
   // merged/ must be left untouched when the merge could not be completed.
   assert.equal(readFileSync(mergedPath(), 'utf-8'), 'base\n');
 });

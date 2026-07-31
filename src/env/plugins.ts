@@ -1,7 +1,8 @@
 import { existsSync } from 'fs';
-import { PLUGINS_CACHE_DIR, loadInstalledPlugins, type ResolvedHost } from '../config.js';
-import { rsync, remotePath, hostExec, writeRemoteJson } from '../ssh.js';
+
+import { loadInstalledPlugins, PLUGINS_CACHE_DIR, type ResolvedHost } from '../config.js';
 import { warn } from '../log.js';
+import { hostExec, remotePath, rsync, writeRemoteJson } from '../ssh.js';
 import { parseRsyncItemize } from '../sync/changes.js';
 
 export async function reconcilePlugins(host: ResolvedHost): Promise<boolean> {
@@ -12,7 +13,9 @@ export async function reconcilePlugins(host: ResolvedHost): Promise<boolean> {
     const r = await rsync(PLUGINS_CACHE_DIR + '/', remotePath(host, '~/.claude/plugins/cache/'));
     if (r.ok) {
       const changes = parseRsyncItemize(r.stdout);
-      if (changes.length > 0) pushed = true;
+      if (changes.length > 0) {
+        pushed = true;
+      }
     }
   }
 
@@ -34,15 +37,11 @@ export async function reconcilePlugins(host: ResolvedHost): Promise<boolean> {
               ...entry,
               installPath: expandInstallPath(entry.installPath, remoteHome),
             })),
-          ]),
+          ])
         ),
       };
 
-      await writeRemoteJson(
-        host,
-        '~/.claude/plugins/installed_plugins.json',
-        rewritten as unknown as Record<string, unknown>,
-      );
+      await writeRemoteJson(host, '~/.claude/plugins/installed_plugins.json', rewritten);
       // Metadata is always written — only count as "pushed" if cache files changed
     } catch (e) {
       warn(`  Plugin metadata sync failed for ${host.name}: ${(e as Error).message}`);

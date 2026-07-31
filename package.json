@@ -8,9 +8,23 @@
   "scripts": {
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
-    "test:watch": "node --import tsx --test --watch \"test/**/*.test.ts\""
+    "test:watch": "node --import tsx --test --watch \"test/**/*.test.ts\"",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{js,cjs,mjs,json,md,css}": [
+      "prettier --write"
+    ]
   },
   "dependencies": {
     "@inquirer/prompts": "^8.2.1",
@@ -20,8 +34,16 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@eslint-community/eslint-plugin-eslint-comments": "^4.6.0",
+    "@eslint/js": "^9",
     "@types/node": "^22.0.0",
+    "eslint": "^9",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
     "prettier": "^3.5.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8"
   }
 }

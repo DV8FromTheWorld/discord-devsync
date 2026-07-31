@@ -1,16 +1,16 @@
 import { loadMcpServers, type McpServer, type ResolvedHost } from '../config.js';
+import { warn } from '../log.js';
 import { readRemoteJson, writeRemoteJson } from '../ssh.js';
 import { loadSecrets } from './secrets.js';
-import { warn } from '../log.js';
 
 function resolveEnvVars(value: string, secrets: Record<string, string>): string {
-  return value.replace(/\$\{(\w+)\}/g, (_, varName) => secrets[varName] ?? `\${${varName}}`);
+  return value.replace(
+    /\$\{(\w+)\}/g,
+    (_full: string, varName: string) => secrets[varName] ?? `\${${varName}}`
+  );
 }
 
-function resolveServerSecrets(
-  server: McpServer,
-  secrets: Record<string, string>,
-): McpServer {
+function resolveServerSecrets(server: McpServer, secrets: Record<string, string>): McpServer {
   if (server.type === 'http' || server.type === 'sse') {
     const resolved: typeof server = { type: server.type, url: resolveEnvVars(server.url, secrets) };
     if (server.headers) {
@@ -22,7 +22,9 @@ function resolveServerSecrets(
     return resolved;
   } else {
     const resolved: McpServer = { type: 'stdio', command: server.command };
-    if (server.args) resolved.args = [...server.args];
+    if (server.args) {
+      resolved.args = [...server.args];
+    }
     if (server.env) {
       resolved.env = {};
       for (const [k, v] of Object.entries(server.env)) {
@@ -59,7 +61,9 @@ export async function reconcileMcp(host: ResolvedHost): Promise<void> {
     if (projects && typeof projects === 'object') {
       for (const projectData of Object.values(projects)) {
         const projectMcp = projectData.mcpServers as Record<string, unknown> | undefined;
-        if (!projectMcp || typeof projectMcp !== 'object') continue;
+        if (!projectMcp || typeof projectMcp !== 'object') {
+          continue;
+        }
         for (const name of pushedNames) {
           if (name in projectMcp) {
             delete projectMcp[name];

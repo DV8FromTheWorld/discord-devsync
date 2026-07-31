@@ -1,7 +1,8 @@
 import { execFileSync } from 'child_process';
 import { mkdirSync } from 'fs';
-import { DREAM_LOG_DIR, DATA_DIR } from '../config.js';
-import { info, success, error } from '../log.js';
+
+import { DATA_DIR, DREAM_LOG_DIR } from '../config.js';
+import { error, info, success } from '../log.js';
 
 export function consolidate(): void {
   info('Starting dream consolidation...');
@@ -51,7 +52,7 @@ When done, print a summary of actions taken.`;
         '-p',
         prompt,
       ],
-      { cwd: DATA_DIR, stdio: 'inherit' },
+      { cwd: DATA_DIR, stdio: 'inherit' }
     );
   } catch {
     error('Dream consolidation failed');

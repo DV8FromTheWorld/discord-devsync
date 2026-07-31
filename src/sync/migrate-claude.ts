@@ -1,7 +1,8 @@
-import { existsSync, unlinkSync, readdirSync, renameSync, writeFileSync } from 'fs';
+import { existsSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
-import { REMOTES_DIR, MERGED_DIR, DATA_DIR } from '../config.js';
-import { info, debug } from '../log.js';
+
+import { DATA_DIR, MERGED_DIR, REMOTES_DIR } from '../config.js';
+import { debug, info } from '../log.js';
 
 const MIGRATION_MARKER = resolve(DATA_DIR, '.migrated-claude-split');
 
@@ -13,7 +14,9 @@ const MIGRATION_MARKER = resolve(DATA_DIR, '.migrated-claude-split');
  * 3. Writes a marker file so this only runs once
  */
 export function migrateFromSingleClaudeMd(): void {
-  if (existsSync(MIGRATION_MARKER)) return;
+  if (existsSync(MIGRATION_MARKER)) {
+    return;
+  }
 
   let migrated = false;
 

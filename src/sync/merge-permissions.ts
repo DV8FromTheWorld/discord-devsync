@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, readFileSync } from 'fs';
 import { resolve } from 'path';
-import { REMOTES_DIR, loadPermissions, savePermissions } from '../config.js';
+
+import { loadPermissions, REMOTES_DIR, savePermissions } from '../config.js';
 import { debug } from '../log.js';
 import { type ContentChange } from './changes.js';
 
@@ -13,14 +14,18 @@ export function mergePermissions(): ContentChange | null {
   if (existsSync(REMOTES_DIR)) {
     for (const host of readdirSync(REMOTES_DIR)) {
       const permFile = resolve(REMOTES_DIR, host, 'permissions.json');
-      if (!existsSync(permFile)) continue;
+      if (!existsSync(permFile)) {
+        continue;
+      }
 
       try {
         const raw = readFileSync(permFile, 'utf-8');
-        const permissions = JSON.parse(raw);
+        const permissions: unknown = JSON.parse(raw);
         if (Array.isArray(permissions)) {
           for (const p of permissions) {
-            if (typeof p === 'string') all.add(p);
+            if (typeof p === 'string') {
+              all.add(p);
+            }
           }
         }
       } catch {
@@ -37,7 +42,9 @@ export function mergePermissions(): ContentChange | null {
   savePermissions([...all]);
 
   const newCount = all.size - existing.length;
-  if (newCount <= 0) return null;
+  if (newCount <= 0) {
+    return null;
+  }
 
   return { label: 'permissions', summary: `+${newCount} rules` };
 }

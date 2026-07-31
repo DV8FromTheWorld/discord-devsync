@@ -1,6 +1,6 @@
-import { loadPermissions, loadEnabledPlugins, type ResolvedHost } from '../config.js';
-import { readRemoteJson, writeRemoteJson } from '../ssh.js';
+import { loadEnabledPlugins, loadPermissions, type ResolvedHost } from '../config.js';
 import { warn } from '../log.js';
+import { readRemoteJson, writeRemoteJson } from '../ssh.js';
 
 export async function reconcileSettings(host: ResolvedHost): Promise<boolean> {
   const permissions = loadPermissions();
@@ -9,7 +9,9 @@ export async function reconcileSettings(host: ResolvedHost): Promise<boolean> {
   const hasPermissions = permissions.length > 0;
   const hasPlugins = Object.keys(enabledPlugins).length > 0;
 
-  if (!hasPermissions && !hasPlugins) return false;
+  if (!hasPermissions && !hasPlugins) {
+    return false;
+  }
 
   try {
     const settings = await readRemoteJson(host, '~/.claude/settings.json');
@@ -29,7 +31,9 @@ export async function reconcileSettings(host: ResolvedHost): Promise<boolean> {
     }
 
     // Only write if settings actually changed
-    if (JSON.stringify(settings) === before) return false;
+    if (JSON.stringify(settings) === before) {
+      return false;
+    }
 
     await writeRemoteJson(host, '~/.claude/settings.json', settings);
     return true;

@@ -1,7 +1,9 @@
 import ora from 'ora';
+
 import type { ResolvedHost } from './config.js';
 import { checkConnection, hostExec } from './ssh.js';
 import { push } from './sync/push.js';
+import { joinOrNone } from './text.js';
 
 export async function onboard(host: ResolvedHost): Promise<void> {
   console.log();
@@ -33,7 +35,7 @@ export async function onboard(host: ResolvedHost): Promise<void> {
   console.log(`  hostname:  ${host.hostname}`);
   console.log(`  platform:  ${host.platform}`);
   console.log(`  skills:    ${host.skills === 'all' ? 'all' : [...host.skills].join(', ')}`);
-  console.log(`  mcp:       ${host.mcp === 'all' ? 'all' : [...host.mcp].join(', ') || 'none'}`);
+  console.log(`  mcp:       ${host.mcp === 'all' ? 'all' : joinOrNone([...host.mcp])}`);
   console.log(`  dotfiles:  ${host.dotfiles ? 'yes' : 'no'}`);
   console.log(`  secrets:   ${host.secrets ? 'yes' : 'no'}`);
 }

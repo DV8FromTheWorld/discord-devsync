@@ -1,9 +1,10 @@
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { ConfigSchema, McpServersSchema, formatValidationErrors } from './schema.js';
+
+import { ConfigSchema, formatValidationErrors, McpServersSchema } from './schema.js';
 
 export const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const DEVSYNC_CONFIG_DIR = resolve(homedir(), '.config', 'devsync');
@@ -98,14 +99,14 @@ export function configExists(): boolean {
 export function loadConfig(): Config {
   if (!existsSync(DATA_DIR)) {
     throw new Error(
-      `Data directory not found at ${DATA_DIR}.\nRun 'devsync init' to reconfigure, or check that the path is accessible.`,
+      `Data directory not found at ${DATA_DIR}.\nRun 'devsync init' to reconfigure, or check that the path is accessible.`
     );
   }
   if (!existsSync(CONFIG_PATH)) {
     throw new Error(`Config not found. Run 'devsync init' first.`);
   }
   const raw = readFileSync(CONFIG_PATH, 'utf-8');
-  const parsed = parseYaml(raw);
+  const parsed: unknown = parseYaml(raw);
 
   // Auto-migrate from old single claude_md to user_claude_md + claude_local_md
   if (migrateConfigPaths(parsed)) {
@@ -115,40 +116,56 @@ export function loadConfig(): Config {
   const result = ConfigSchema.safeParse(parsed);
   if (!result.success) {
     throw new Error(
-      `Invalid config.yaml:\n${formatValidationErrors(result.error)}\n\nFix the issues above or run 'devsync init' to regenerate.`,
+      `Invalid config.yaml:\n${formatValidationErrors(result.error)}\n\nFix the issues above or run 'devsync init' to regenerate.`
     );
   }
 
-  return result.data as Config;
+  return result.data;
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-function migrateConfigPaths(config: any): boolean {
+/**
+ * Shape of config.yaml as it may exist on disk *before* migration — deliberately looser
+ * than Config, since the whole point is to read fields the current schema no longer has.
+ */
+interface LegacyPaths {
+  claude_md?: string;
+  user_claude_md?: string;
+  claude_local_md?: string;
+}
+
+interface LegacyConfigShape {
+  defaults?: Record<string, { paths?: LegacyPaths } | undefined>;
+  hosts?: Record<string, { paths?: LegacyPaths } | undefined>;
+}
+
+function migrateConfigPaths(rawConfig: unknown): boolean {
+  const config = rawConfig as LegacyConfigShape;
   let changed = false;
 
   // Migrate platform defaults
   for (const platform of ['darwin', 'linux']) {
-    const paths = config?.defaults?.[platform]?.paths;
+    const paths = config.defaults?.[platform]?.paths;
     if (paths && 'claude_md' in paths && !('user_claude_md' in paths)) {
       const oldPath = paths.claude_md;
       delete paths.claude_md;
       paths.user_claude_md = '~/.claude/CLAUDE.md';
-      paths.claude_local_md = oldPath
-        ? oldPath.replace(/CLAUDE\.md$/, 'CLAUDE.local.md')
-        : platform === 'darwin'
-          ? '~/Projects/discord/discord/CLAUDE.local.md'
-          : '~/discord/CLAUDE.local.md';
+      paths.claude_local_md =
+        oldPath !== undefined && oldPath !== ''
+          ? oldPath.replace(/CLAUDE\.md$/, 'CLAUDE.local.md')
+          : platform === 'darwin'
+            ? '~/Projects/discord/discord/CLAUDE.local.md'
+            : '~/discord/CLAUDE.local.md';
       changed = true;
     }
   }
 
   // Migrate per-host path overrides
-  for (const hostName of Object.keys(config?.hosts ?? {})) {
-    const paths = config.hosts[hostName]?.paths;
+  for (const hostName of Object.keys(config.hosts ?? {})) {
+    const paths = config.hosts?.[hostName]?.paths;
     if (paths && 'claude_md' in paths) {
       const oldPath = paths.claude_md;
       delete paths.claude_md;
-      if (oldPath) {
+      if (oldPath !== undefined && oldPath !== '') {
         paths.claude_local_md = oldPath.replace(/CLAUDE\.md$/, 'CLAUDE.local.md');
       }
       changed = true;
@@ -157,7 +174,6 @@ function migrateConfigPaths(config: any): boolean {
 
   return changed;
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export function saveConfig(config: Config): void {
   mkdirSync(DATA_DIR, { recursive: true });
@@ -169,16 +185,16 @@ export function loadMcpServers(): Record<string, McpServer> {
     return {};
   }
   const raw = readFileSync(MCP_SERVERS_PATH, 'utf-8');
-  const parsed = JSON.parse(raw);
+  const parsed: unknown = JSON.parse(raw);
 
   const result = McpServersSchema.safeParse(parsed);
   if (!result.success) {
     throw new Error(
-      `Invalid mcp-servers.json:\n${formatValidationErrors(result.error)}\n\nFix the issues above in ${MCP_SERVERS_PATH}.`,
+      `Invalid mcp-servers.json:\n${formatValidationErrors(result.error)}\n\nFix the issues above in ${MCP_SERVERS_PATH}.`
     );
   }
 
-  return result.data as Record<string, McpServer>;
+  return result.data;
 }
 
 export function saveMcpServers(servers: Record<string, McpServer>): void {
@@ -191,8 +207,10 @@ export function loadPermissions(): string[] {
     return [];
   }
   const raw = readFileSync(PERMISSIONS_PATH, 'utf-8');
-  const parsed = JSON.parse(raw);
-  if (!Array.isArray(parsed)) return [];
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
   return parsed.filter((p: unknown) => typeof p === 'string');
 }
 
@@ -203,11 +221,15 @@ export function savePermissions(permissions: string[]): void {
 }
 
 export function loadMcpExclude(): string[] {
-  if (!existsSync(MCP_EXCLUDE_PATH)) return [];
+  if (!existsSync(MCP_EXCLUDE_PATH)) {
+    return [];
+  }
   try {
     const raw = readFileSync(MCP_EXCLUDE_PATH, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
     return parsed.filter((p: unknown) => typeof p === 'string');
   } catch {
     return [];
@@ -235,11 +257,15 @@ export interface InstalledPluginsFile {
 }
 
 export function loadEnabledPlugins(): Record<string, boolean> {
-  if (!existsSync(PLUGINS_ENABLED_PATH)) return {};
+  if (!existsSync(PLUGINS_ENABLED_PATH)) {
+    return {};
+  }
   try {
     const raw = readFileSync(PLUGINS_ENABLED_PATH, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return {};
+    }
     return parsed as Record<string, boolean>;
   } catch {
     return {};
@@ -253,11 +279,15 @@ export function saveEnabledPlugins(plugins: Record<string, boolean>): void {
 }
 
 export function loadInstalledPlugins(): InstalledPluginsFile {
-  if (!existsSync(PLUGINS_INSTALLED_PATH)) return { version: 1, plugins: {} };
+  if (!existsSync(PLUGINS_INSTALLED_PATH)) {
+    return { version: 1, plugins: {} };
+  }
   try {
     const raw = readFileSync(PLUGINS_INSTALLED_PATH, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return { version: 1, plugins: {} };
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) {
+      return { version: 1, plugins: {} };
+    }
     return parsed as InstalledPluginsFile;
   } catch {
     return { version: 1, plugins: {} };
@@ -308,23 +338,33 @@ export function resolveHost(config: Config, hostName: string): ResolvedHost {
     if (layer.skills === 'all') {
       skills = 'all';
     } else if (skills !== 'all' && layer.skills) {
-      for (const s of layer.skills) skills.add(s);
+      for (const s of layer.skills) {
+        skills.add(s);
+      }
     }
 
     if (layer.agents === 'all') {
       agents = 'all';
     } else if (agents !== 'all' && layer.agents) {
-      for (const a of layer.agents) agents.add(a);
+      for (const a of layer.agents) {
+        agents.add(a);
+      }
     }
 
     if (layer.mcp === 'all') {
       mcp = 'all';
     } else if (mcp !== 'all' && layer.mcp) {
-      for (const m of layer.mcp) mcp.add(m);
+      for (const m of layer.mcp) {
+        mcp.add(m);
+      }
     }
 
-    if (layer.dotfiles) dotfiles = true;
-    if (layer.secrets) secrets = true;
+    if (layer.dotfiles) {
+      dotfiles = true;
+    }
+    if (layer.secrets) {
+      secrets = true;
+    }
   }
 
   return {

@@ -1,29 +1,33 @@
-import { existsSync, statSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
+
 import { REMOTES_DIR, type ResolvedHost } from '../config.js';
-import { rsync, rsyncMirror, remotePath, checkConnection, hostExec } from '../ssh.js';
 import { debug } from '../log.js';
-import { timed, runParallel } from './parallel.js';
+import { checkConnection, hostExec, remotePath, rsync, rsyncMirror } from '../ssh.js';
+import { hasText } from '../text.js';
 import {
-  type HostChanges,
+  aggregateToDirectories,
+  buildFileChanges,
+  computeDiffStats,
   type ContentChange,
   type FileChange,
-  parseRsyncItemize,
-  buildFileChanges,
-  aggregateToDirectories,
-  snapshotTextFiles,
-  computeDiffStats,
   formatDiffBar,
+  type HostChanges,
+  parseRsyncItemize,
   printHostChanges,
+  snapshotTextFiles,
 } from './changes.js';
+import { runParallel, timed } from './parallel.js';
 
 async function fetchSettings(host: ResolvedHost, remoteDir: string): Promise<boolean> {
   const result = await hostExec(host, 'cat ~/.claude/settings.json 2>/dev/null');
-  if (!result.ok || !result.stdout.trim()) return false;
+  if (!result.ok || result.stdout.trim() === '') {
+    return false;
+  }
 
   let settings: Record<string, unknown>;
   try {
-    settings = JSON.parse(result.stdout.trim());
+    settings = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
   } catch {
     return false;
   }
@@ -38,10 +42,14 @@ async function fetchSettings(host: ResolvedHost, remoteDir: string): Promise<boo
   }
 
   const enabledPlugins = settings.enabledPlugins;
-  if (enabledPlugins && typeof enabledPlugins === 'object' && !Array.isArray(enabledPlugins)) {
+  if (
+    typeof enabledPlugins === 'object' &&
+    enabledPlugins !== null &&
+    !Array.isArray(enabledPlugins)
+  ) {
     writeFileSync(
       resolve(remoteDir, 'plugins-enabled.json'),
-      JSON.stringify(enabledPlugins, null, 2) + '\n',
+      JSON.stringify(enabledPlugins, null, 2) + '\n'
     );
     fetched = true;
   }
@@ -55,14 +63,14 @@ async function fetchPlugins(host: ResolvedHost, remoteDir: string): Promise<bool
   // Fetch installed_plugins.json
   const installedResult = await hostExec(
     host,
-    'cat ~/.claude/plugins/installed_plugins.json 2>/dev/null',
+    'cat ~/.claude/plugins/installed_plugins.json 2>/dev/null'
   );
-  if (installedResult.ok && installedResult.stdout.trim()) {
+  if (installedResult.ok && installedResult.stdout.trim() !== '') {
     try {
       JSON.parse(installedResult.stdout.trim()); // validate
       writeFileSync(
         resolve(remoteDir, 'installed-plugins.json'),
-        installedResult.stdout.trim() + '\n',
+        installedResult.stdout.trim() + '\n'
       );
       fetched = true;
     } catch {
@@ -74,21 +82,23 @@ async function fetchPlugins(host: ResolvedHost, remoteDir: string): Promise<bool
   const cacheDir = resolve(remoteDir, '.claude', 'plugins', 'cache');
   mkdirSync(cacheDir, { recursive: true });
   const r = await rsyncMirror(remotePath(host, '~/.claude/plugins/cache/'), cacheDir + '/');
-  if (r.ok) fetched = true;
+  if (r.ok) {
+    fetched = true;
+  }
 
   return fetched;
 }
 
 async function fetchMcpServers(
   host: ResolvedHost,
-  remoteDir: string,
+  remoteDir: string
 ): Promise<ContentChange | null> {
   // Read old state for comparison
   const mcpFile = resolve(remoteDir, 'mcp-servers.json');
   let oldServerNames = new Set<string>();
   if (existsSync(mcpFile)) {
     try {
-      const old = JSON.parse(readFileSync(mcpFile, 'utf-8'));
+      const old = JSON.parse(readFileSync(mcpFile, 'utf-8')) as Record<string, unknown>;
       oldServerNames = new Set(Object.keys(old));
     } catch {
       /* ignore */
@@ -96,11 +106,13 @@ async function fetchMcpServers(
   }
 
   const result = await hostExec(host, 'cat ~/.claude.json 2>/dev/null');
-  if (!result.ok || !result.stdout.trim()) return null;
+  if (!result.ok || result.stdout.trim() === '') {
+    return null;
+  }
 
   let claudeJson: Record<string, unknown>;
   try {
-    claudeJson = JSON.parse(result.stdout.trim());
+    claudeJson = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -110,23 +122,25 @@ async function fetchMcpServers(
 
   // User-scoped (top-level mcpServers)
   const userServers = claudeJson.mcpServers;
-  if (userServers && typeof userServers === 'object') {
+  if (typeof userServers === 'object' && userServers !== null) {
     Object.assign(allServers, userServers);
   }
 
   // Project-scoped (under projects[path].mcpServers)
   const projects = claudeJson.projects;
-  if (projects && typeof projects === 'object') {
+  if (typeof projects === 'object' && projects !== null) {
     for (const projectData of Object.values(projects)) {
       const data = projectData as Record<string, unknown>;
       const mcpServers = data.mcpServers;
-      if (mcpServers && typeof mcpServers === 'object') {
+      if (typeof mcpServers === 'object' && mcpServers !== null) {
         Object.assign(allServers, mcpServers);
       }
     }
   }
 
-  if (Object.keys(allServers).length === 0) return null;
+  if (Object.keys(allServers).length === 0) {
+    return null;
+  }
 
   writeFileSync(resolve(remoteDir, 'mcp-servers.json'), JSON.stringify(allServers, null, 2) + '\n');
 
@@ -183,17 +197,14 @@ async function fetchHost(host: ResolvedHost): Promise<HostChanges> {
   const [userClaudeT, localClaudeT, kbT, skillsT, agentsT, mcpT, permT, pluginsT] =
     await Promise.all([
       timed('user-claude', () =>
-        rsync(remotePath(host, host.paths.user_claude_md), resolve(remoteDir, 'user-CLAUDE.md')),
+        rsync(remotePath(host, host.paths.user_claude_md), resolve(remoteDir, 'user-CLAUDE.md'))
       ),
       timed('claude-local', () =>
-        rsync(
-          remotePath(host, host.paths.claude_local_md),
-          resolve(remoteDir, 'CLAUDE.local.md'),
-        ),
+        rsync(remotePath(host, host.paths.claude_local_md), resolve(remoteDir, 'CLAUDE.local.md'))
       ),
       timed('kb', () => rsyncMirror(remotePath(host, host.paths.kb + '/'), kbDir + '/')),
       timed('skills', () =>
-        rsyncMirror(remotePath(host, host.paths.skills + '/'), skillsDir + '/'),
+        rsyncMirror(remotePath(host, host.paths.skills + '/'), skillsDir + '/')
       ),
       timed('agents', () => rsyncMirror(remotePath(host, '~/.claude/agents/'), agentsDir + '/')),
       timed('mcp', () => fetchMcpServers(host, remoteDir)),
@@ -209,7 +220,7 @@ async function fetchHost(host: ResolvedHost): Promise<HostChanges> {
     `agents ${agentsT.ms}ms`,
     `mcp ${mcpT.ms}ms`,
     `settings ${permT.ms}ms`,
-    `plugins ${pluginsT.ms}ms`,
+    `plugins ${pluginsT.ms}ms`
   );
 
   // ── Build change list from rsync output ──
@@ -231,9 +242,10 @@ async function fetchHost(host: ResolvedHost): Promise<HostChanges> {
   ]) {
     if (timedResult.result.ok) {
       const rsyncChanges = parseRsyncItemize(timedResult.result.stdout);
-      if (rsyncChanges.length > 0) {
-        const fc: FileChange = { name: fileName, type: rsyncChanges[0].type };
-        if (rsyncChanges[0].type === '~' && oldContent) {
+      const firstRsyncChange = rsyncChanges[0];
+      if (firstRsyncChange !== undefined) {
+        const fc: FileChange = { name: fileName, type: firstRsyncChange.type };
+        if (firstRsyncChange.type === '~' && hasText(oldContent)) {
           try {
             const newContent = readFileSync(resolve(remoteDir, fileName), 'utf-8');
             const stats = computeDiffStats(oldContent, newContent);

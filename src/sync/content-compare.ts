@@ -1,13 +1,23 @@
-import { readFileSync, readdirSync, existsSync } from 'fs';
 import { execFileSync } from 'child_process';
-import { resolve, relative, join } from 'path';
+import { existsSync, readdirSync, readFileSync } from 'fs';
+import { join, relative, resolve } from 'path';
+
+import { hasText } from '../text.js';
 
 /** True if all files have byte-identical content */
 export function filesAreIdentical(paths: string[]): boolean {
-  if (paths.length < 2) return true;
-  const first = readFileSync(paths[0], 'utf-8');
-  for (let i = 1; i < paths.length; i++) {
-    if (readFileSync(paths[i], 'utf-8') !== first) return false;
+  if (paths.length < 2) {
+    return true;
+  }
+  const [firstPath, ...otherPaths] = paths;
+  if (firstPath === undefined) {
+    return true;
+  }
+  const first = readFileSync(firstPath, 'utf-8');
+  for (const path of otherPaths) {
+    if (readFileSync(path, 'utf-8') !== first) {
+      return false;
+    }
   }
   return true;
 }
@@ -16,9 +26,13 @@ export function filesAreIdentical(paths: string[]): boolean {
 function collectFiles(dir: string): string[] {
   const results: string[] = [];
   function walk(current: string): void {
-    if (!existsSync(current)) return;
+    if (!existsSync(current)) {
+      return;
+    }
     for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (entry.name === '.DS_Store') continue;
+      if (entry.name === '.DS_Store') {
+        continue;
+      }
       const full = resolve(current, entry.name);
       if (entry.isDirectory()) {
         walk(full);
@@ -33,20 +47,33 @@ function collectFiles(dir: string): string[] {
 
 /** True if all directories have identical structure + file contents */
 export function dirsAreIdentical(paths: string[]): boolean {
-  if (paths.length < 2) return true;
+  if (paths.length < 2) {
+    return true;
+  }
 
-  const firstFiles = collectFiles(paths[0]);
-  for (let i = 1; i < paths.length; i++) {
-    const otherFiles = collectFiles(paths[i]);
-    if (firstFiles.length !== otherFiles.length) return false;
+  const [firstDir, ...otherDirs] = paths;
+  if (firstDir === undefined) {
+    return true;
+  }
+
+  const firstFiles = collectFiles(firstDir);
+  for (const dir of otherDirs) {
+    const otherFiles = collectFiles(dir);
+    if (firstFiles.length !== otherFiles.length) {
+      return false;
+    }
     for (let j = 0; j < firstFiles.length; j++) {
-      if (firstFiles[j] !== otherFiles[j]) return false;
+      if (firstFiles[j] !== otherFiles[j]) {
+        return false;
+      }
     }
     // Same structure — compare file contents
     for (const rel of firstFiles) {
-      const a = readFileSync(resolve(paths[0], rel), 'utf-8');
-      const b = readFileSync(resolve(paths[i], rel), 'utf-8');
-      if (a !== b) return false;
+      const a = readFileSync(resolve(firstDir, rel), 'utf-8');
+      const b = readFileSync(resolve(dir, rel), 'utf-8');
+      if (a !== b) {
+        return false;
+      }
     }
   }
   return true;
@@ -75,23 +102,29 @@ function runDiff(fileA: string, fileB: string): string {
 }
 
 function hostFromPath(remotePath: string, remotesDir: string): string {
-  return relative(remotesDir, remotePath).split('/')[0];
+  const [host] = relative(remotesDir, remotePath).split('/');
+  return host ?? '';
 }
 
 /** Generate unified diffs for remote files against a base */
 export function generateFileDiffs(
   mergedPath: string | null,
   remotes: string[],
-  remotesDir: string,
+  remotesDir: string
 ): DiffSet {
-  const basePath = mergedPath && existsSync(mergedPath) ? mergedPath : remotes[0];
-  const baseLabel = mergedPath && existsSync(mergedPath)
-    ? 'current merged'
-    : hostFromPath(remotes[0], remotesDir);
+  const firstRemote = remotes[0];
+  if (firstRemote === undefined) {
+    throw new Error('generateFileDiffs requires at least one remote path');
+  }
+  const useMerged = hasText(mergedPath) && existsSync(mergedPath);
+  const basePath = useMerged ? mergedPath : firstRemote;
+  const baseLabel = useMerged ? 'current merged' : hostFromPath(firstRemote, remotesDir);
 
   const diffs: DiffSet['diffs'] = [];
   for (const remote of remotes) {
-    if (remote === basePath) continue;
+    if (remote === basePath) {
+      continue;
+    }
     const host = hostFromPath(remote, remotesDir);
     diffs.push({ host, diff: runDiff(basePath, remote) });
   }
@@ -102,24 +135,35 @@ export function generateFileDiffs(
 export function generateDirDiffs(
   mergedDir: string | null,
   remoteDirs: string[],
-  remotesDir: string,
+  remotesDir: string
 ): DiffSet {
-  const baseDir = mergedDir && existsSync(mergedDir) ? mergedDir : remoteDirs[0];
-  const baseLabel = mergedDir && existsSync(mergedDir)
-    ? 'current merged'
-    : hostFromPath(remoteDirs[0], remotesDir);
+  const firstRemoteDir = remoteDirs[0];
+  if (firstRemoteDir === undefined) {
+    throw new Error('generateDirDiffs requires at least one remote directory');
+  }
+  const useMerged = hasText(mergedDir) && existsSync(mergedDir);
+  const baseDir = useMerged ? mergedDir : firstRemoteDir;
+  const baseLabel = useMerged ? 'current merged' : hostFromPath(firstRemoteDir, remotesDir);
 
   // Collect the union of all relative paths
   const allRelPaths = new Set<string>();
-  for (const rel of collectFiles(baseDir)) allRelPaths.add(rel);
+  for (const rel of collectFiles(baseDir)) {
+    allRelPaths.add(rel);
+  }
   for (const dir of remoteDirs) {
-    if (dir === baseDir) continue;
-    for (const rel of collectFiles(dir)) allRelPaths.add(rel);
+    if (dir === baseDir) {
+      continue;
+    }
+    for (const rel of collectFiles(dir)) {
+      allRelPaths.add(rel);
+    }
   }
 
   const diffs: DiffSet['diffs'] = [];
   for (const dir of remoteDirs) {
-    if (dir === baseDir) continue;
+    if (dir === baseDir) {
+      continue;
+    }
     const host = hostFromPath(dir, remotesDir);
     const fileDiffs: string[] = [];
     for (const rel of [...allRelPaths].sort()) {
@@ -130,7 +174,9 @@ export function generateDirDiffs(
 
       if (baseExists && otherExists) {
         const d = runDiff(baseFile, otherFile);
-        if (d) fileDiffs.push(`=== ${rel} ===\n${d}`);
+        if (d !== '') {
+          fileDiffs.push(`=== ${rel} ===\n${d}`);
+        }
       } else if (baseExists && !otherExists) {
         fileDiffs.push(`=== ${rel} ===\n(file removed by ${host})`);
       } else if (!baseExists && otherExists) {

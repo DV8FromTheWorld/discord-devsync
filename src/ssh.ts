@@ -2,7 +2,9 @@ import { execFile } from 'child_process';
 import { mkdtempSync, rmSync } from 'fs';
 import { homedir } from 'os';
 import { resolve } from 'path';
+
 import type { ResolvedHost } from './config.js';
+import { hasText } from './text.js';
 
 function expandHome(path: string): string {
   return path.replace(/^~(?=$|\/)/, homedir());
@@ -23,11 +25,9 @@ const SSH_CONNECT_TIMEOUT = 10;
 let muxDir: string | null = null;
 
 function getMuxDir(): string {
-  if (!muxDir) {
-    // Use /tmp directly to keep socket paths short — macOS /var/folders paths
-    // are ~70 chars, and Unix sockets have a ~104 char limit
-    muxDir = mkdtempSync('/tmp/ds-');
-  }
+  // Use /tmp directly to keep socket paths short — macOS /var/folders paths
+  // are ~70 chars, and Unix sockets have a ~104 char limit
+  muxDir ??= mkdtempSync('/tmp/ds-');
   return muxDir;
 }
 
@@ -39,7 +39,7 @@ function muxSocketPath(hostname: string): string {
 
 function sshOpts(hostname?: string): string[] {
   const opts = ['-o', `ConnectTimeout=${SSH_CONNECT_TIMEOUT}`];
-  if (hostname) {
+  if (hasText(hostname)) {
     const socket = muxSocketPath(hostname);
     opts.push('-o', `ControlMaster=auto`, '-o', `ControlPath=${socket}`, '-o', `ControlPersist=60`);
   }
@@ -58,7 +58,7 @@ function sshOptsString(hostname?: string): string {
 }
 
 export function cleanupMux(): void {
-  if (muxDir) {
+  if (hasText(muxDir)) {
     rmSync(muxDir, { recursive: true, force: true });
     muxDir = null;
   }
@@ -83,7 +83,7 @@ function exec(cmd: string, args: string[], timeout = DEFAULT_TIMEOUT): Promise<R
         } else {
           resolve({ ok: true, stdout: stdout ?? '', stderr: stderr ?? '' });
         }
-      },
+      }
     );
   });
 }
@@ -100,11 +100,13 @@ export function hostExec(host: ResolvedHost, cmd: string): Promise<RunResult> {
 // --- Connectivity check ---
 
 export async function checkConnection(host: ResolvedHost): Promise<boolean> {
-  if (host.isLocal) return true;
+  if (host.isLocal) {
+    return true;
+  }
   const result = await exec(
     'ssh',
     [...sshOpts(host.hostname), host.hostname, 'echo ok'],
-    CONNECT_CHECK_TIMEOUT,
+    CONNECT_CHECK_TIMEOUT
   );
   return result.ok && result.stdout.trim() === 'ok';
 }
@@ -134,11 +136,11 @@ export function rsyncMirror(src: string, dst: string): Promise<RunResult> {
 
 export async function readRemoteJson(
   host: ResolvedHost,
-  remotePath_: string,
+  remotePath_: string
 ): Promise<Record<string, unknown>> {
   const result = await hostExec(host, `cat ${remotePath_} 2>/dev/null || echo "{}"`);
   try {
-    return JSON.parse(result.stdout.trim());
+    return JSON.parse(result.stdout.trim()) as Record<string, unknown>;
   } catch {
     return {};
   }
@@ -147,19 +149,21 @@ export async function readRemoteJson(
 export async function writeRemoteJson(
   host: ResolvedHost,
   remotePath_: string,
-  data: Record<string, unknown>,
+  data: Record<string, unknown>
 ): Promise<void> {
   const json = JSON.stringify(data, null, 2) + '\n';
   const b64 = Buffer.from(json).toString('base64');
   await hostExec(
     host,
-    `printf '%s' '${b64}' | base64 -d > ${remotePath_}.tmp && mv ${remotePath_}.tmp ${remotePath_}`,
+    `printf '%s' '${b64}' | base64 -d > ${remotePath_}.tmp && mv ${remotePath_}.tmp ${remotePath_}`
   );
 }
 
 // --- Path helpers ---
 
 export function remotePath(host: ResolvedHost, path: string): string {
-  if (host.isLocal) return expandHome(path);
+  if (host.isLocal) {
+    return expandHome(path);
+  }
   return `${host.hostname}:${path}`;
 }

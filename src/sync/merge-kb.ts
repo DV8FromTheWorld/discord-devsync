@@ -1,10 +1,11 @@
-import { existsSync, readdirSync, mkdirSync, statSync, copyFileSync, utimesSync } from 'fs';
-import { resolve, relative, basename } from 'path';
-import { REMOTES_DIR, MERGED_DIR } from '../config.js';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, utimesSync } from 'fs';
+import { basename, relative, resolve } from 'path';
+
+import { MERGED_DIR, REMOTES_DIR } from '../config.js';
 import { debug } from '../log.js';
 import { type ContentChange, type FileChange } from './changes.js';
 import { type DiffSet } from './content-compare.js';
-import { type MergeItem, fileMergeOps, mergeItems } from './merge-engine.js';
+import { fileMergeOps, type MergeItem, mergeItems } from './merge-engine.js';
 
 const EXCLUDED_PREFIXES = ['journal/', 'curiosity/'];
 
@@ -13,14 +14,18 @@ const EXCLUDED_PREFIXES = ['journal/', 'curiosity/'];
 const EXCLUDED_FILENAMES = new Set(['.DS_Store', '._.DS_Store', 'Thumbs.db', 'desktop.ini']);
 
 function isExcluded(relPath: string): boolean {
-  if (EXCLUDED_PREFIXES.some((prefix) => relPath.startsWith(prefix))) return true;
+  if (EXCLUDED_PREFIXES.some((prefix) => relPath.startsWith(prefix))) {
+    return true;
+  }
   return EXCLUDED_FILENAMES.has(basename(relPath));
 }
 
 function globFiles(dir: string, filter: (name: string) => boolean): string[] {
   const results: string[] = [];
   function walk(current: string): void {
-    if (!existsSync(current)) return;
+    if (!existsSync(current)) {
+      return;
+    }
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const full = resolve(current, entry.name);
       if (entry.isDirectory()) {
@@ -44,7 +49,9 @@ function globNonMd(dir: string): string[] {
 
 function findAllKbFiles(): Set<string> {
   const allFiles = new Set<string>();
-  if (!existsSync(REMOTES_DIR)) return allFiles;
+  if (!existsSync(REMOTES_DIR)) {
+    return allFiles;
+  }
 
   for (const host of readdirSync(REMOTES_DIR)) {
     const kbDir = resolve(REMOTES_DIR, host, 'discord-kb');
@@ -60,7 +67,9 @@ function findAllKbFiles(): Set<string> {
 
 function findAllNonMdKbFiles(): Set<string> {
   const allFiles = new Set<string>();
-  if (!existsSync(REMOTES_DIR)) return allFiles;
+  if (!existsSync(REMOTES_DIR)) {
+    return allFiles;
+  }
 
   for (const host of readdirSync(REMOTES_DIR)) {
     const kbDir = resolve(REMOTES_DIR, host, 'discord-kb');
@@ -75,18 +84,24 @@ function findAllNonMdKbFiles(): Set<string> {
 }
 
 function findKbRemotes(kbFile: string): string[] {
-  if (!existsSync(REMOTES_DIR)) return [];
+  if (!existsSync(REMOTES_DIR)) {
+    return [];
+  }
   const remotes: string[] = [];
   for (const host of readdirSync(REMOTES_DIR)) {
     const remoteFile = resolve(REMOTES_DIR, host, 'discord-kb', kbFile);
-    if (existsSync(remoteFile)) remotes.push(remoteFile);
+    if (existsSync(remoteFile)) {
+      remotes.push(remoteFile);
+    }
   }
   return remotes;
 }
 
 function buildPrompt(item: MergeItem, { basePath, baseLabel, diffs }: DiffSet): string {
   const diffSections = diffs
-    .map(({ host, diff }) => `--- Host: ${host} ---\n${diff || '(no changes from base)'}`)
+    .map(
+      ({ host, diff }) => `--- Host: ${host} ---\n${diff !== '' ? diff : '(no changes from base)'}`
+    )
     .join('\n\n');
 
   return [
@@ -147,11 +162,16 @@ export async function mergeKbDirectories(): Promise<ContentChange | null> {
     for (const kbFile of nonMdFiles) {
       const mergedPath = resolve(mergedKb, kbFile);
       const remotePaths = findKbRemotes(kbFile);
-      if (remotePaths.length === 0) continue;
+      if (remotePaths.length === 0) {
+        continue;
+      }
 
       // Pick the newest version by mtime. Remotes are fetched with `rsync -a`, which
       // preserves times, so these are the original mtimes from each host.
       let newestPath = remotePaths[0];
+      if (newestPath === undefined) {
+        continue;
+      }
       let newestStat = statSync(newestPath);
       for (const remotePath of remotePaths.slice(1)) {
         const remoteStat = statSync(remotePath);
@@ -165,7 +185,9 @@ export async function mergeKbDirectories(): Promise<ContentChange | null> {
       // remote's mtime (see utimesSync below), so this compares source mtime to source
       // mtime rather than to whenever we happened to copy.
       const existed = existsSync(mergedPath);
-      if (existed && statSync(mergedPath).mtimeMs >= newestStat.mtimeMs) continue;
+      if (existed && statSync(mergedPath).mtimeMs >= newestStat.mtimeMs) {
+        continue;
+      }
 
       mkdirSync(resolve(mergedPath, '..'), { recursive: true });
       copyFileSync(newestPath, mergedPath);
@@ -176,13 +198,15 @@ export async function mergeKbDirectories(): Promise<ContentChange | null> {
       // over so last-modified-wins stays comparable across hosts and across runs.
       utimesSync(mergedPath, newestStat.atime, newestStat.mtime);
 
-      const host = relative(REMOTES_DIR, newestPath).split('/')[0];
+      const host = relative(REMOTES_DIR, newestPath).split('/')[0] ?? '';
       debug(`  ${kbFile}: copied from ${host} (last-modified-wins)`);
       nonMdChanges.push({ name: kbFile, type: existed ? '~' : '+', note: `from ${host}` });
     }
   }
 
   const allFiles = [...(mdChange?.files ?? []), ...nonMdChanges];
-  if (allFiles.length === 0) return null;
+  if (allFiles.length === 0) {
+    return null;
+  }
   return { label: 'KB', files: allFiles };
 }
