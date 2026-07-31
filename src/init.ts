@@ -22,7 +22,7 @@ async function promptHost(
     // Test connectivity
     const testHost = { hostname, isLocal: false } as Parameters<typeof checkConnection>[0];
     info(`  Testing SSH connection to ${hostname}...`);
-    let connected = checkConnection(testHost);
+    let connected = await checkConnection(testHost);
     while (!connected) {
       const retry = await confirm({
         message: `Could not connect to ${hostname}. Retry?`,
@@ -32,7 +32,7 @@ async function promptHost(
         const skip = await confirm({ message: 'Skip this host?', default: true });
         if (skip) return null;
       }
-      connected = checkConnection(testHost);
+      connected = await checkConnection(testHost);
     }
     success(`  Connected to ${hostname}`);
 

@@ -15,14 +15,14 @@ export async function hostAdd(): Promise<void> {
   // Test connectivity
   const testHost = { hostname, isLocal: false } as Parameters<typeof checkConnection>[0];
   info(`Testing SSH connection to ${hostname}...`);
-  let connected = checkConnection(testHost);
+  let connected = await checkConnection(testHost);
   while (!connected) {
     const retry = await confirm({
       message: `Could not connect to ${hostname}. Retry?`,
       default: true,
     });
     if (!retry) return;
-    connected = checkConnection(testHost);
+    connected = await checkConnection(testHost);
   }
   success(`Connected to ${hostname}`);
 
@@ -107,6 +107,6 @@ export async function hostAdd(): Promise<void> {
   const doOnboard = await confirm({ message: 'Onboard this host now?', default: true });
   if (doOnboard) {
     const resolved = resolveHost(config, name);
-    onboard(resolved);
+    await onboard(resolved);
   }
 }
