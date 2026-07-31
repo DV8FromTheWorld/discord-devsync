@@ -214,7 +214,7 @@ function ensureSubdirs(dataDir: string): void {
 
 function ensureGitignore(dataDir: string): void {
   const gitignorePath = resolve(dataDir, '.gitignore');
-  const required = ['remotes/', 'secrets/'];
+  const required = ['remotes/', 'secrets/', 'logs/'];
 
   if (!existsSync(gitignorePath)) {
     writeFileSync(gitignorePath, required.join('\n') + '\n');
