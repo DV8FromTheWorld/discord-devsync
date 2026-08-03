@@ -31,6 +31,7 @@ import {
   printHostChanges,
   snapshotTextFiles,
 } from './changes.js';
+import { claudeConflictKey } from './merge-claude.js';
 import { runParallel, timed } from './parallel.js';
 
 async function pushFilteredSkills(
@@ -147,6 +148,8 @@ interface PushFileArgs {
   mergedFilename: string;
   remoteDest: string;
   label: string;
+  /** Conflict-tracking key merge records for this file, from claudeConflictKey(). */
+  conflictKey: string;
   host: ResolvedHost;
   result: HostChanges;
   timings: string[];
@@ -157,6 +160,7 @@ async function pushSingleFile({
   mergedFilename,
   remoteDest,
   label,
+  conflictKey,
   host,
   result,
   timings,
@@ -166,8 +170,9 @@ async function pushSingleFile({
   if (!existsSync(mergedFile)) {
     return;
   }
-  // Skip if this file has an unresolved merge conflict
-  const conflictKey = label.toLowerCase().replace(/\s+/g, '-');
+  // Skip if this file has an unresolved merge conflict, so a half-merged or stale version
+  // is never pushed over a host's copy. The key comes from the caller rather than being
+  // re-derived from the label, which is how this check silently matched nothing before.
   if (conflictKeys.has(conflictKey)) {
     return;
   }
@@ -248,6 +253,7 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
       mergedFilename: 'user-CLAUDE.md',
       remoteDest: remotePath(host, host.paths.user_claude_md),
       label: 'user CLAUDE.md',
+      conflictKey: claudeConflictKey('user-CLAUDE.md'),
       host,
       result,
       timings,
@@ -259,6 +265,7 @@ async function pushHost(host: ResolvedHost): Promise<HostChanges> {
       mergedFilename: 'CLAUDE.local.md',
       remoteDest: remotePath(host, host.paths.claude_local_md),
       label: 'CLAUDE.local.md',
+      conflictKey: claudeConflictKey('CLAUDE.local.md'),
       host,
       result,
       timings,

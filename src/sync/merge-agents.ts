@@ -91,7 +91,6 @@ export async function mergeAgents(): Promise<ContentChange | null> {
     label: 'agents',
     ops: fileMergeOps,
     allowedTools: 'Read,Write,Glob',
-    onClaudeFail: 'conflict',
     buildPrompt,
   });
 }

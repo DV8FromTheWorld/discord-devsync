@@ -7,6 +7,17 @@ import { type ContentChange } from './changes.js';
 import { type DiffSet } from './content-compare.js';
 import { fileMergeOps, type MergeItem, mergeItems } from './merge-engine.js';
 
+/**
+ * Conflict-tracking key for a merged CLAUDE file.
+ *
+ * Push reads the same keys to decide what to skip, so both sides must agree on the exact
+ * string — hence one shared function rather than a convention each end re-derives.
+ * Matches the `kb:` / `skills:` / `agents:` prefixing used by the other layers.
+ */
+export function claudeConflictKey(mergedFilename: string): string {
+  return `claude:${mergedFilename}`;
+}
+
 function findRemoteFiles(remoteFilename: string): string[] {
   if (!existsSync(REMOTES_DIR)) {
     return [];
@@ -65,12 +76,18 @@ async function mergeClaudeFile(
   mkdirSync(MERGED_DIR, { recursive: true });
 
   return mergeItems(
-    [{ name: mergedFilename, mergedPath: mergedFile, remotePaths: remoteFiles, conflictKey: null }],
+    [
+      {
+        name: mergedFilename,
+        mergedPath: mergedFile,
+        remotePaths: remoteFiles,
+        conflictKey: claudeConflictKey(mergedFilename),
+      },
+    ],
     {
       label,
       ops: fileMergeOps,
       allowedTools: 'Read,Write,Glob',
-      onClaudeFail: 'exit',
       buildPrompt,
     }
   );

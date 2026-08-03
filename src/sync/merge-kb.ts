@@ -148,7 +148,6 @@ export async function mergeKbDirectories(): Promise<ContentChange | null> {
     label: 'KB',
     ops: fileMergeOps,
     allowedTools: 'Read,Write',
-    onClaudeFail: 'conflict',
     buildPrompt,
   });
 

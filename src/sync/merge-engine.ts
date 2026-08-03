@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSyn
 import { relative, resolve } from 'path';
 
 import { DATA_DIR, REMOTES_DIR } from '../config.js';
-import { debug, error, getLogFilePath, logDetail, warn } from '../log.js';
+import { debug, getLogFilePath, logDetail, warn } from '../log.js';
 import { rsyncMirror } from '../ssh.js';
 import { hasText } from '../text.js';
 import {
@@ -152,8 +152,6 @@ export interface MergeConfig {
   buildPrompt(item: MergeItem, diffs: DiffSet): string;
   /** Claude CLI allowed tools string. */
   allowedTools: string;
-  /** What to do when Claude merge fails. */
-  onClaudeFail: 'exit' | 'conflict';
   /** Suffix to append to item name in FileChange (e.g. "/" for directories). */
   nameSuffix?: string;
 }
@@ -233,12 +231,19 @@ export async function mergeItems(
   items: MergeItem[],
   config: MergeConfig
 ): Promise<ContentChange | null> {
-  const { label, ops, allowedTools, onClaudeFail, nameSuffix } = config;
+  const { label, ops, allowedTools, nameSuffix } = config;
   const useConflicts = items.some((i) => i.conflictKey !== null);
   const conflicts = useConflicts ? loadConflicts() : [];
   const files: FileChange[] = [];
 
-  for (const item of items) {
+  const displayName = (name: string): string => (hasText(nameSuffix) ? name + nameSuffix : name);
+
+  /**
+   * Merge a single item, returning the change to report or null when there was nothing to
+   * do. Anything genuinely unexpected throws, and the caller turns it into a conflict —
+   * see the loop below.
+   */
+  async function mergeOne(item: MergeItem): Promise<FileChange | null> {
     const { name, mergedPath, remotePaths, conflictKey } = item;
     const existed = existsSync(mergedPath);
     const mergedMtime = existed ? ops.mtime(mergedPath) : 0;
@@ -253,7 +258,7 @@ export async function mergeItems(
     });
 
     if (newerRemotes.length === 0) {
-      continue;
+      return null;
     }
 
     // A newer mtime does not mean different content. rsync preserves times, so a re-fetch
@@ -272,7 +277,7 @@ export async function mergeItems(
 
     if (changedRemotes.length === 0) {
       debug(`  ${name}: ${newerRemotes.length} remote(s) newer but content identical — skipping`);
-      continue;
+      return null;
     }
 
     const oldSnapshot = existed ? ops.snapshot(mergedPath) : null;
@@ -282,7 +287,7 @@ export async function mergeItems(
 
     const firstChangedRemote = changedRemotes[0];
     if (firstChangedRemote === undefined) {
-      continue;
+      return null;
     }
 
     if (changedRemotes.length === 1) {
@@ -307,16 +312,10 @@ export async function mergeItems(
       const success = await invokeClaudeMerge(name, prompt, allowedTools);
 
       if (!success) {
+        // Record the conflict and leave merged/ alone. Every layer behaves this way: no
+        // single file may abort the sync, and push skips conflicted paths so the last
+        // good version stays put until the next run retries.
         const hostNames = changedRemotes.map((r) => hostNameOf(r));
-        if (onClaudeFail === 'exit') {
-          error(`${label} merge failed for ${name} (hosts: ${hostNames.join(', ')})`);
-          const logPath = getLogFilePath();
-          if (hasText(logPath)) {
-            error(`Claude output recorded in ${logPath}`);
-          }
-          process.exit(1);
-        }
-        // Soft failure — record conflict, don't overwrite merged/
         if (conflictKey !== null) {
           addConflict(conflicts, {
             key: conflictKey,
@@ -326,13 +325,12 @@ export async function mergeItems(
           });
         }
         warn(`  Claude merge failed for ${name}`);
-        files.push({
-          name: hasText(nameSuffix) ? name + nameSuffix : name,
+        return {
+          name: displayName(name),
           type: '~',
           conflict: true,
           note: `Versions differ on: ${hostNames.join(', ')}. Resolve in merged/ or re-run sync to retry.`,
-        });
-        continue;
+        };
       }
 
       claudeMerge = true;
@@ -344,11 +342,11 @@ export async function mergeItems(
 
     // Check if content actually changed
     if (existed && oldSnapshot !== null && ops.unchanged(oldSnapshot, mergedPath)) {
-      continue;
+      return null;
     }
 
     const fc: FileChange = {
-      name: hasText(nameSuffix) ? name + nameSuffix : name,
+      name: displayName(name),
       type: existed ? '~' : '+',
     };
 
@@ -360,7 +358,46 @@ export async function mergeItems(
       fc.note = 'conflict resolved via Claude';
     }
 
-    files.push(fc);
+    return fc;
+  }
+
+  for (const item of items) {
+    try {
+      const change = await mergeOne(item);
+      if (change) {
+        files.push(change);
+      }
+    } catch (err) {
+      // An unreadable file, a failed copy, or a diff that blew up must not take the rest
+      // of the merge down with it. Before this, a throw here escaped all the way out of
+      // the sync — abandoning the remaining items and, because saveConflicts runs after
+      // this loop, discarding the conflict bookkeeping for everything already merged
+      // (including conflicts that had just been resolved).
+      const message = err instanceof Error ? err.message : String(err);
+      logDetail(
+        `merge error: ${item.name}`,
+        err instanceof Error ? (err.stack ?? err.message) : String(err)
+      );
+      warn(`  ${label} merge failed for ${item.name}: ${message}`);
+      const logPath = getLogFilePath();
+      if (hasText(logPath)) {
+        warn(`    details in ${logPath}`);
+      }
+      if (item.conflictKey !== null) {
+        addConflict(conflicts, {
+          key: item.conflictKey,
+          hosts: item.remotePaths.map((r) => hostNameOf(r)),
+          reason: `merge error: ${message}`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+      files.push({
+        name: displayName(item.name),
+        type: '~',
+        conflict: true,
+        note: `Merge failed: ${message}. merged/ left unchanged; re-run sync to retry.`,
+      });
+    }
   }
 
   if (useConflicts) {

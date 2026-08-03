@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -33,7 +34,8 @@ process.env.PATH = `${stubBin}:${process.env.PATH ?? ''}`;
 
 const { REMOTES_DIR, MERGED_DIR } = await import('../src/config.js');
 const { mergeItems, fileMergeOps } = await import('../src/sync/merge-engine.js');
-const { loadConflicts } = await import('../src/sync/changes.js');
+const { loadConflicts, saveConflicts } = await import('../src/sync/changes.js');
+const { mergeClaudeLocalMd, claudeConflictKey } = await import('../src/sync/merge-claude.js');
 
 const FILE = 'notes.md';
 const mergedPath = () => resolve(MERGED_DIR, FILE);
@@ -65,7 +67,6 @@ function runMerge(remotePaths: string[]) {
       label: 'test',
       ops: fileMergeOps,
       allowedTools: 'Read,Write',
-      onClaudeFail: 'conflict',
       buildPrompt: () => 'unused — claude is unreachable in tests',
     }
   );
@@ -179,4 +180,142 @@ test('ignores remotes older than merged', async () => {
 
   assert.equal(change, null);
   assert.equal(readFileSync(mergedPath(), 'utf-8'), 'newer base\n');
+});
+
+// ─── Per-item failure isolation ─────────────────────────────────
+
+test('a failing item does not abort the items after it', async () => {
+  // Before per-item isolation a throw here escaped mergeItems entirely, so every item
+  // after the failure was silently skipped.
+  const aMerged = resolve(MERGED_DIR, 'a.md');
+  const bMerged = resolve(MERGED_DIR, 'b.md');
+  writeWithMtime(aMerged, 'a base\n', TWO_HOURS_AGO);
+  writeWithMtime(bMerged, 'b base\n', TWO_HOURS_AGO);
+  const aRemote = resolve(REMOTES_DIR, 'hostA', 'a.md');
+  const bRemote = resolve(REMOTES_DIR, 'hostA', 'b.md');
+  writeWithMtime(aRemote, 'a edited\n', NOW);
+  writeWithMtime(bRemote, 'b edited\n', NOW);
+
+  const change = await mergeItems(
+    [
+      { name: 'a.md', mergedPath: aMerged, remotePaths: [aRemote], conflictKey: 'test:a.md' },
+      { name: 'b.md', mergedPath: bMerged, remotePaths: [bRemote], conflictKey: 'test:b.md' },
+    ],
+    {
+      label: 'test',
+      ops: {
+        ...fileMergeOps,
+        copy: async (src: string, dst: string) => {
+          if (dst === aMerged) {
+            throw new Error('disk on fire');
+          }
+          copyFileSync(src, dst);
+        },
+      },
+      allowedTools: 'Read,Write',
+      buildPrompt: () => 'unused',
+    }
+  );
+
+  // The item after the failure still merged.
+  assert.equal(readFileSync(bMerged, 'utf-8'), 'b edited\n');
+  // The failing item was left alone and surfaced as a conflict carrying the reason.
+  assert.equal(readFileSync(aMerged, 'utf-8'), 'a base\n');
+  const aChange = change?.files?.find((f) => f.name === 'a.md');
+  assert.equal(aChange?.conflict, true);
+  assert.match(aChange?.note ?? '', /disk on fire/);
+  assert.deepEqual(
+    loadConflicts().map((c) => c.key),
+    ['test:a.md']
+  );
+});
+
+test('conflict bookkeeping is still saved when a later item throws', async () => {
+  // saveConflicts runs after the loop, so a mid-loop throw used to discard the whole
+  // run's bookkeeping — including conflicts that had just been resolved.
+  const aMerged = resolve(MERGED_DIR, 'a.md');
+  const bMerged = resolve(MERGED_DIR, 'b.md');
+  writeWithMtime(aMerged, 'a base\n', TWO_HOURS_AGO);
+  writeWithMtime(bMerged, 'b base\n', TWO_HOURS_AGO);
+  const aRemote = resolve(REMOTES_DIR, 'hostA', 'a.md');
+  const bRemote = resolve(REMOTES_DIR, 'hostA', 'b.md');
+  writeWithMtime(aRemote, 'a edited\n', NOW);
+  writeWithMtime(bRemote, 'b edited\n', NOW);
+
+  // a.md carries a stale conflict that this run resolves; b.md then blows up.
+  saveConflicts([
+    { key: 'test:a.md', hosts: ['hostA'], reason: 'stale', timestamp: '2026-01-01T00:00:00.000Z' },
+  ]);
+
+  await mergeItems(
+    [
+      { name: 'a.md', mergedPath: aMerged, remotePaths: [aRemote], conflictKey: 'test:a.md' },
+      { name: 'b.md', mergedPath: bMerged, remotePaths: [bRemote], conflictKey: 'test:b.md' },
+    ],
+    {
+      label: 'test',
+      ops: {
+        ...fileMergeOps,
+        copy: async (src: string, dst: string) => {
+          if (dst === bMerged) {
+            throw new Error('b is cursed');
+          }
+          copyFileSync(src, dst);
+        },
+      },
+      allowedTools: 'Read,Write',
+      buildPrompt: () => 'unused',
+    }
+  );
+
+  // a.md's resolution persisted and b.md's failure was recorded.
+  assert.deepEqual(
+    loadConflicts()
+      .map((c) => c.key)
+      .sort(),
+    ['test:b.md']
+  );
+});
+
+test('records a conflict when diff generation fails outright', async () => {
+  // runDiff rethrows anything that is not "files differ" (exit 1). Shadowing diff with an
+  // exit-2 stub reproduces that for real, rather than simulating it through ops.
+  const diffStub = resolve(stubBin, 'diff');
+  writeFileSync(diffStub, '#!/bin/sh\necho "diff exploded" >&2\nexit 2\n');
+  chmodSync(diffStub, 0o755);
+  try {
+    writeMerged('base\n', TWO_HOURS_AGO);
+    const a = writeRemote('hostA', 'base\nedit from A\n', ONE_HOUR_AGO);
+    const b = writeRemote('hostB', 'base\nedit from B\n', NOW);
+
+    const change = await runMerge([a, b]);
+
+    assert.equal(change?.files?.[0]?.conflict, true);
+    assert.equal(loadConflicts().length, 1);
+    assert.equal(readFileSync(mergedPath(), 'utf-8'), 'base\n');
+  } finally {
+    rmSync(diffStub, { force: true });
+  }
+});
+
+// ─── CLAUDE.md uses the same path as every other layer ──────────
+
+test('a failed CLAUDE.local.md merge records a conflict instead of exiting', async () => {
+  // This test completing at all is the assertion that matters: the old exit branch called
+  // process.exit(1), which would have taken the test runner down with it.
+  const merged = resolve(MERGED_DIR, 'CLAUDE.local.md');
+  writeWithMtime(merged, 'base\n', TWO_HOURS_AGO);
+  writeWithMtime(resolve(REMOTES_DIR, 'hostA', 'CLAUDE.local.md'), 'base\nfrom A\n', ONE_HOUR_AGO);
+  writeWithMtime(resolve(REMOTES_DIR, 'hostB', 'CLAUDE.local.md'), 'base\nfrom B\n', NOW);
+
+  const change = await mergeClaudeLocalMd();
+
+  assert.equal(change?.files?.[0]?.conflict, true);
+  assert.equal(readFileSync(merged, 'utf-8'), 'base\n');
+  // The recorded key must be exactly what push checks, or push would happily overwrite
+  // the host copy while the conflict is unresolved.
+  assert.deepEqual(
+    loadConflicts().map((c) => c.key),
+    [claudeConflictKey('CLAUDE.local.md')]
+  );
 });

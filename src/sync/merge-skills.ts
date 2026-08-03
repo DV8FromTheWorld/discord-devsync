@@ -93,7 +93,6 @@ export async function mergeSkillsDirectories(): Promise<ContentChange | null> {
     label: 'skills',
     ops: dirMergeOps,
     allowedTools: 'Read,Write,Glob',
-    onClaudeFail: 'conflict',
     nameSuffix: '/',
     buildPrompt,
   });
